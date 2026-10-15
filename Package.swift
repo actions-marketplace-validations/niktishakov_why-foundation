@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "why-foundation", targets: ["why-foundation"]),
+        .library(name: "WhyFoundationCore", targets: ["WhyFoundationCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
