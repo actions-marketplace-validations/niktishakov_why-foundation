@@ -22,7 +22,8 @@ public struct HeavyImport: Codable, Equatable, Sendable {
 public enum FullFoundationAPI: String, Codable, CaseIterable, Comparable, Sendable {
     /// `URLSession` and friends live in FoundationNetworking, which needs the full Foundation.
     case networking
-    /// Legacy formatters and `NSRegularExpression` need FoundationInternationalization and ICU.
+    /// Legacy formatters, `NSRegularExpression` and FoundationInternationalization types such as `Measurement`
+    /// need ICU.
     case formatting
     /// Types that exist only in swift-corelibs-foundation.
     case corelibsOnly
@@ -44,6 +45,20 @@ public enum FullFoundationAPI: String, Codable, CaseIterable, Comparable, Sendab
         "NSString": .corelibsOnly, "NSNumber": .corelibsOnly, "NSDictionary": .corelibsOnly,
         "NSArray": .corelibsOnly, "NSObject": .corelibsOnly, "NSError": .corelibsOnly,
         "UserDefaults": .corelibsOnly, "NSCache": .corelibsOnly,
+        "IndexSet": .corelibsOnly, "NSRange": .corelibsOnly, "NSMakeRange": .corelibsOnly,
+        "AffineTransform": .corelibsOnly, "PersonNameComponents": .corelibsOnly,
+        "FileHandle": .corelibsOnly, "Process": .corelibsOnly, "Pipe": .corelibsOnly,
+        "InputStream": .corelibsOnly, "OutputStream": .corelibsOnly, "Host": .corelibsOnly,
+        "NSCoder": .corelibsOnly, "NSKeyedArchiver": .corelibsOnly, "NSKeyedUnarchiver": .corelibsOnly,
+        "NSAttributedString": .corelibsOnly, "NSMutableString": .corelibsOnly, "NSMutableArray": .corelibsOnly,
+        "NSMutableDictionary": .corelibsOnly, "NSSet": .corelibsOnly, "NSURL": .corelibsOnly, "NSData": .corelibsOnly,
+        "NSDate": .corelibsOnly, "NSValue": .corelibsOnly, "NSNull": .corelibsOnly, "NSDecimalNumber": .corelibsOnly,
+        "NSPredicate": .corelibsOnly, "NSSortDescriptor": .corelibsOnly,
+        // On non-Apple platforms, `Error.localizedDescription` exists only in swift-corelibs-foundation.
+        "localizedDescription": .corelibsOnly,
+        "Measurement": .formatting, "Dimension": .formatting, "UnitLength": .formatting, "UnitMass": .formatting,
+        "UnitDuration": .formatting, "UnitTemperature": .formatting, "UnitSpeed": .formatting,
+        "UnitInformationStorage": .formatting, "SortDescriptor": .formatting,
     ]
 
     public static func < (lhs: Self, rhs: Self) -> Bool {

@@ -116,4 +116,15 @@ import Testing
         let apis = ImportScanner.scan(source, configuration: configuration).fullFoundationAPIs
         #expect(apis == [.networking: ["URLSession"], .corelibsOnly: ["JSONSerialization"]])
     }
+
+    @Test func typesMissingFromEssentials() {
+        let source = """
+        import Foundation
+        func move(fromOffsets source: IndexSet, toOffset destination: Int) {}
+        let distance = Measurement(value: 1, unit: UnitLength.meters)
+        func describe(_ error: any Error) -> String { error.localizedDescription }
+        """
+        let apis = ImportScanner.scan(source, configuration: configuration).fullFoundationAPIs
+        #expect(apis == [.corelibsOnly: ["IndexSet", "localizedDescription"], .formatting: ["Measurement", "UnitLength"]])
+    }
 }

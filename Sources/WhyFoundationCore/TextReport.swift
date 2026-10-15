@@ -101,7 +101,7 @@ extension FullFoundationAPI {
     var label: String {
         switch self {
         case .networking: "FoundationNetworking"
-        case .formatting: "ICU formatting"
+        case .formatting: "needs ICU"
         case .corelibsOnly: "not in FoundationEssentials"
         }
     }
