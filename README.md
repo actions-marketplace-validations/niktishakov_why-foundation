@@ -37,6 +37,14 @@ swift-dependencies › Dependencies
 
 Requires Swift 6.1 or later on macOS or Linux.
 
+With [Mint](https://github.com/yonaskolb/Mint):
+
+```bash
+mint install niktishakov/why-foundation
+```
+
+Or from source:
+
 ```bash
 git clone https://github.com/niktishakov/why-foundation
 cd why-foundation
@@ -67,6 +75,19 @@ why-foundation --json
 | `--verbose` | List every import instead of the first few per target. |
 
 The exit code is 1 when anything pulls in Foundation, so you can use it in CI.
+
+### In CI
+
+To fail a GitHub Actions job when a dependency starts pulling in Foundation:
+
+```yaml
+- name: Check that the full Foundation isn't pulled in
+  run: |
+    git clone --depth 1 --branch 0.1.0 https://github.com/niktishakov/why-foundation /tmp/why-foundation
+    swift run --package-path /tmp/why-foundation -c release why-foundation --package-path . --product MyLibrary
+```
+
+Pass `--platform linux` to check a Linux build instead of an Android one.
 
 ## What it checks
 
