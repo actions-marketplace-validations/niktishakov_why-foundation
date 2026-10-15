@@ -83,11 +83,11 @@ To fail a GitHub Actions job when a dependency starts pulling in Foundation:
 ```yaml
 - name: Check that the full Foundation isn't pulled in
   run: |
-    git clone --depth 1 --branch 0.1.1 https://github.com/niktishakov/why-foundation /tmp/why-foundation
+    git clone -q --depth 1 --branch 0.1.1 https://github.com/niktishakov/why-foundation /tmp/why-foundation
     swift run --package-path /tmp/why-foundation -c release why-foundation --package-path . --product MyLibrary
 ```
 
-Pass `--platform linux` to check a Linux build instead of an Android one.
+Pass `--platform linux` to check a Linux build instead of an Android one. The first run builds the tool, which takes a few minutes on Linux because of swift-syntax. To skip that on later runs, cache `/tmp/why-foundation/.build` with `actions/cache`, keyed on the version.
 
 ## What it checks
 

@@ -251,7 +251,7 @@ public enum GraphLoader {
         // Resolution can print a lot to stderr; a file keeps it from filling a pipe and stalling the process.
         let errorLog = FileManager.default.temporaryDirectory
             .appendingPathComponent("why-foundation-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: errorLog.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: errorLog.path, contents: nil)
         defer { try? FileManager.default.removeItem(at: errorLog) }
         let errors = try FileHandle(forWritingTo: errorLog)
         defer { try? errors.close() }
