@@ -24,6 +24,17 @@ jobs:
           ref: ${{ env.TAG }}
       - name: Build universal binary
         run: swift build -c release --product why-foundation --arch arm64 --arch x86_64
+      - name: Smoke test
+        shell: bash
+        run: |
+          mkdir -p /tmp/smoke/Sources/A && cd /tmp/smoke
+          printf '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "smoke", targets: [.target(name: "A")])\n' > Package.swift
+          echo 'import FoundationEssentials' > Sources/A/A.swift
+          "$GITHUB_WORKSPACE/.build/apple/Products/Release/why-foundation" --platform linux
+          printf '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "smoke", targets: [.target(name: "A", resources: [.copy("r.txt")])])\n' > Package.swift
+          echo x > Sources/A/r.txt
+          set +e; "$GITHUB_WORKSPACE/.build/apple/Products/Release/why-foundation" --platform linux; code=$?; set -e
+          test "$code" = 1
       - name: Package
         run: |
           mkdir dist
@@ -53,6 +64,17 @@ jobs:
           ref: ${{ env.TAG }}
       - name: Build static binary
         run: swift build -c release --product why-foundation --static-swift-stdlib
+      - name: Smoke test
+        shell: bash
+        run: |
+          mkdir -p /tmp/smoke/Sources/A && cd /tmp/smoke
+          printf '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "smoke", targets: [.target(name: "A")])\n' > Package.swift
+          echo 'import FoundationEssentials' > Sources/A/A.swift
+          timeout 300 "$GITHUB_WORKSPACE/.build/release/why-foundation" --platform linux
+          printf '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "smoke", targets: [.target(name: "A", resources: [.copy("r.txt")])])\n' > Package.swift
+          echo x > Sources/A/r.txt
+          set +e; timeout 300 "$GITHUB_WORKSPACE/.build/release/why-foundation" --platform linux; code=$?; set -e
+          test "$code" = 1
       - name: Package
         run: |
           mkdir dist

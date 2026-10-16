@@ -243,32 +243,17 @@ public enum GraphLoader {
     }
 
     private static func runJSON(_ executable: String, _ arguments: [String], in directory: URL) throws -> Any {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [executable] + arguments
-        process.currentDirectoryURL = directory
-        let output = Pipe()
-        // Resolution can print a lot to stderr; a file keeps it from filling a pipe and stalling the process.
-        let errorLog = FileManager.default.temporaryDirectory
-            .appendingPathComponent("why-foundation-\(UUID().uuidString).log")
-        _ = FileManager.default.createFile(atPath: errorLog.path, contents: nil)
-        defer { try? FileManager.default.removeItem(at: errorLog) }
-        let errors = try FileHandle(forWritingTo: errorLog)
-        defer { try? errors.close() }
-        process.standardOutput = output
-        process.standardError = errors
-        try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let errorData = (try? Data(contentsOf: errorLog)) ?? Data()
+        // `swift package --package-path <dir> <subcommand> ...`, so no working directory change is needed.
+        let fullArguments = [executable] + arguments.prefix(1) + ["--package-path", directory.path] + arguments.dropFirst()
+        let result = try Command.run(fullArguments)
 
         let command = ([executable] + arguments).joined(separator: " ")
-        guard process.terminationStatus == 0 else {
-            throw GraphLoadingError.commandFailed(command, String(decoding: errorData, as: UTF8.self))
+        guard result.exitCode == 0 else {
+            throw GraphLoadingError.commandFailed(command, String(decoding: result.errorOutput, as: UTF8.self))
         }
         // SwiftPM may print progress lines before the JSON document.
-        guard let start = data.firstIndex(of: UInt8(ascii: "{")),
-              let json = try? JSONSerialization.jsonObject(with: data[start...])
+        guard let start = result.output.firstIndex(of: UInt8(ascii: "{")),
+              let json = try? JSONSerialization.jsonObject(with: result.output[start...])
         else {
             throw GraphLoadingError.unexpectedOutput(command)
         }
