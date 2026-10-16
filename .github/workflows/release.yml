@@ -1,0 +1,67 @@
+name: Release binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build binaries for
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Build universal binary
+        run: swift build -c release --product why-foundation --arch arm64 --arch x86_64
+      - name: Package
+        run: |
+          mkdir dist
+          cp .build/apple/Products/Release/why-foundation dist/
+          tar -czf why-foundation-macos.tar.gz -C dist why-foundation
+          shasum -a 256 why-foundation-macos.tar.gz > why-foundation-macos.tar.gz.sha256
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" why-foundation-macos.tar.gz why-foundation-macos.tar.gz.sha256 --clobber
+
+  linux:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    container: swift:6.2-noble
+    steps:
+      - name: Install tools
+        run: apt-get update -q && apt-get install -y -q gh
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Build static binary
+        run: swift build -c release --product why-foundation --static-swift-stdlib
+      - name: Package
+        run: |
+          mkdir dist
+          cp .build/release/why-foundation dist/
+          tar -czf why-foundation-linux-${{ matrix.arch }}.tar.gz -C dist why-foundation
+          sha256sum why-foundation-linux-${{ matrix.arch }}.tar.gz > why-foundation-linux-${{ matrix.arch }}.tar.gz.sha256
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release upload "$TAG" why-foundation-linux-${{ matrix.arch }}.tar.gz why-foundation-linux-${{ matrix.arch }}.tar.gz.sha256 --clobber --repo "$GITHUB_REPOSITORY"
