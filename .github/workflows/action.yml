@@ -27,3 +27,47 @@ jobs:
       - name: Check that the second run failed
         shell: bash
         run: test "${{ steps.resources.outcome }}" = failure
+
+  published:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package with swift-log passes
+        uses: niktishakov/why-foundation@v0
+        with:
+          package-path: Fixtures/log
+          product: Shared
+      # CryptoBoringWrapper in swift-crypto imports Foundation, so this check must fail.
+      - name: Package with swift-crypto fails
+        id: crypto
+        continue-on-error: true
+        uses: niktishakov/why-foundation@v0
+        with:
+          package-path: Fixtures/crypto
+          product: Shared
+      - name: Check that it failed
+        run: test "${{ steps.crypto.outcome }}" = failure
+
+  container:
+    runs-on: ubuntu-latest
+    container: swift:6.2-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Without curl, the action fails with a clear error
+        id: nocurl
+        continue-on-error: true
+        uses: niktishakov/why-foundation@v0
+        with:
+          package-path: Fixtures/clean
+      - name: Check that it failed
+        run: test "${{ steps.nocurl.outcome }}" = failure
+      - name: Install curl
+        run: apt-get update -q && apt-get install -y -q curl
+      - name: With curl, the clean package passes
+        uses: niktishakov/why-foundation@v0
+        with:
+          package-path: Fixtures/clean
+          product: Clean
