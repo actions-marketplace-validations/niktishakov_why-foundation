@@ -1,0 +1,77 @@
+name: why-foundation
+description: Fail when a dependency pulls the full Foundation, and with it ICU, into an Android or Linux Swift build.
+author: Nik Tishakov
+branding:
+  icon: package
+  color: orange
+
+inputs:
+  version:
+    description: Release of why-foundation to use, such as 0.1.2, or latest.
+    default: latest
+  package-path:
+    description: Path to the Swift package or Xcode project to check.
+    default: .
+  product:
+    description: Check only this product of the root package. By default, all non-test targets are checked.
+    default: ''
+  platform:
+    description: Platform whose conditions apply, android or linux.
+    default: android
+  include-tests:
+    description: Also check test targets.
+    default: 'false'
+  verbose:
+    description: List every import instead of the first few per target.
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Run why-foundation
+      shell: bash
+      env:
+        WF_VERSION: ${{ inputs.version }}
+        WF_PACKAGE_PATH: ${{ inputs.package-path }}
+        WF_PRODUCT: ${{ inputs.product }}
+        WF_PLATFORM: ${{ inputs.platform }}
+        WF_INCLUDE_TESTS: ${{ inputs.include-tests }}
+        WF_VERBOSE: ${{ inputs.verbose }}
+      run: |
+        set -euo pipefail
+
+        case "$(uname -s)-$(uname -m)" in
+          Linux-x86_64) asset=why-foundation-linux-x86_64.tar.gz ;;
+          Linux-aarch64 | Linux-arm64) asset=why-foundation-linux-aarch64.tar.gz ;;
+          Darwin-*) asset=why-foundation-macos.tar.gz ;;
+          *) echo "::error::why-foundation has no prebuilt binary for $(uname -s) $(uname -m)"; exit 1 ;;
+        esac
+
+        if [ "$WF_VERSION" = latest ]; then
+          base=https://github.com/niktishakov/why-foundation/releases/latest/download
+        else
+          base="https://github.com/niktishakov/why-foundation/releases/download/$WF_VERSION"
+        fi
+
+        if ! command -v curl > /dev/null; then
+          echo "::error::why-foundation needs curl to download its binary. In a swift container, run: apt-get update && apt-get install -y curl"
+          exit 1
+        fi
+
+        dir="${RUNNER_TEMP:-/tmp}/why-foundation"
+        mkdir -p "$dir"
+        curl -sfL "$base/$asset" -o "$dir/$asset"
+        curl -sfL "$base/$asset.sha256" -o "$dir/$asset.sha256"
+        if command -v sha256sum > /dev/null; then
+          (cd "$dir" && sha256sum -c "$asset.sha256" > /dev/null)
+        else
+          (cd "$dir" && shasum -a 256 -c "$asset.sha256" > /dev/null)
+        fi
+        tar -xzf "$dir/$asset" -C "$dir"
+
+        args=(--package-path "$WF_PACKAGE_PATH" --platform "$WF_PLATFORM")
+        if [ -n "$WF_PRODUCT" ]; then args+=(--product "$WF_PRODUCT"); fi
+        if [ "$WF_INCLUDE_TESTS" = true ]; then args+=(--include-tests); fi
+        if [ "$WF_VERBOSE" = true ]; then args+=(--verbose); fi
+
+        "$dir/why-foundation" "${args[@]}"

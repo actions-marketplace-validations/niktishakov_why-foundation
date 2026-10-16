@@ -1,0 +1,29 @@
+name: Action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clean package passes
+        uses: ./
+        with:
+          package-path: Fixtures/clean
+          product: Clean
+      - name: Package with resources fails
+        id: resources
+        continue-on-error: true
+        uses: ./
+        with:
+          package-path: Fixtures/resources
+      - name: Check that the second run failed
+        shell: bash
+        run: test "${{ steps.resources.outcome }}" = failure

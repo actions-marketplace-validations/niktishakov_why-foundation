@@ -92,7 +92,17 @@ The exit code is 1 when anything pulls in Foundation, so you can use it in CI.
 
 ### In CI
 
-To fail a GitHub Actions job when a dependency starts pulling in Foundation:
+With the GitHub Action, after the step that sets up Swift:
+
+```yaml
+- uses: niktishakov/why-foundation@v0
+  with:
+    product: MyLibrary
+```
+
+The job fails when anything pulls in the full Foundation. Inputs: `version` (default `latest`), `package-path`, `product`, `platform` (`android` or `linux`), `include-tests` and `verbose`. The action downloads a prebuilt binary, so it takes seconds, and it runs on Linux and macOS runners.
+
+Or call the binary yourself:
 
 ```yaml
 - name: Check that the full Foundation isn't pulled in
