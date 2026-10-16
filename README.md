@@ -38,7 +38,18 @@ swift-dependencies › Dependencies
 
 ## Install
 
-Requires Swift 6.1 or later on macOS or Linux.
+The tool runs `swift package` under the hood, so it needs a Swift toolchain (6.1 or later) on the machine.
+
+Download a prebuilt binary from the [latest release](https://github.com/niktishakov/why-foundation/releases/latest):
+
+```bash
+# macOS (Apple silicon and Intel)
+curl -sL https://github.com/niktishakov/why-foundation/releases/latest/download/why-foundation-macos.tar.gz | tar xz
+# Linux (x86_64 or aarch64)
+curl -sL https://github.com/niktishakov/why-foundation/releases/latest/download/why-foundation-linux-$(uname -m).tar.gz | tar xz
+```
+
+Then move `why-foundation` somewhere on your `PATH`, for example `/usr/local/bin`.
 
 With [Mint](https://github.com/yonaskolb/Mint):
 
@@ -86,11 +97,11 @@ To fail a GitHub Actions job when a dependency starts pulling in Foundation:
 ```yaml
 - name: Check that the full Foundation isn't pulled in
   run: |
-    git clone -q --depth 1 --branch 0.1.1 https://github.com/niktishakov/why-foundation /tmp/why-foundation
-    swift run --package-path /tmp/why-foundation -c release why-foundation --package-path . --product MyLibrary
+    curl -sfL https://github.com/niktishakov/why-foundation/releases/download/0.1.2/why-foundation-linux-$(uname -m).tar.gz | tar xz -C "$RUNNER_TEMP"
+    "$RUNNER_TEMP/why-foundation" --product MyLibrary
 ```
 
-Pass `--platform linux` to check a Linux build instead of an Android one. The first run builds the tool, which takes a few minutes on Linux because of swift-syntax. To skip that on later runs, cache `/tmp/why-foundation/.build` with `actions/cache`, keyed on the version.
+This downloads a prebuilt binary, so the check takes seconds. The official `swift` Docker images don't include `curl`; in such a container, install it first with `apt-get update && apt-get install -y curl`. Pass `--platform linux` to check a Linux build instead of an Android one.
 
 ## What it checks
 
