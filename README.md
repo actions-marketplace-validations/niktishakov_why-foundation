@@ -1,5 +1,8 @@
 # why-foundation
 
+[![Swift versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fniktishakov%2Fwhy-foundation%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/niktishakov/why-foundation)
+[![Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fniktishakov%2Fwhy-foundation%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/niktishakov/why-foundation)
+
 Find out which dependencies pull the full Foundation into your Android or Linux build.
 
 On Apple platforms Foundation is part of the OS. On Android and Linux it ships with your app, and `import Foundation` brings in ICU, a large library for dates, numbers and languages. With the Swift SDK for Android that is about 48 MB per architecture. `import FoundationEssentials` avoids it, but only if nothing in the dependency graph imports Foundation.
