@@ -1,4 +1,4 @@
-name: why-foundation
+name: why-foundation check
 description: Fail when a dependency pulls the full Foundation, and with it ICU, into an Android or Linux Swift build.
 author: Nik Tishakov
 branding:
