@@ -133,10 +133,11 @@ Each finding gets a verdict:
 | Verdict | Meaning |
 |---|---|
 | Likely easy | No APIs beyond `FoundationEssentials` found. Switching the import is probably enough. |
+| Likely easy, plus a one-line fix | The same, but the code also uses what `import Foundation` re-exports: C library calls such as `isatty` or `pthread_mutex_lock`, `DispatchQueue`, or names written as `Foundation.X`. The report shows the fix, such as ``add `import Dispatch` ``. |
 | Uses full-Foundation APIs | Uses `URLSession`, legacy formatters, `NSLock`, `Bundle`, `String` methods such as `replacingOccurrences` or similar. Needs real work, or isn't worth changing. |
 | Apple-only | Imports `UIKit`, `SwiftUI` or another Apple framework, so it doesn't build for Android anyway. |
 
-The [Swift Ecosystem Steering Group recommends](https://forums.swift.org/t/the-adoption-of-import-foundationessentials-throughout-the-package-ecosystem/84112/16) switching to `FoundationEssentials` where a package only uses APIs available there. The "likely easy" group is where that applies.
+The [Swift Ecosystem Steering Group recommends](https://forums.swift.org/t/the-adoption-of-import-foundationessentials-throughout-the-package-ecosystem/84112/16) switching to `FoundationEssentials` where a package only uses APIs available there. The two "likely easy" groups are where that applies.
 
 ## Accuracy
 

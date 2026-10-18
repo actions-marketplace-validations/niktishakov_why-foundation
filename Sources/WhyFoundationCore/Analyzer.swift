@@ -15,6 +15,9 @@ public enum Verdict: String, Codable, Sendable {
     case appleOnly
     /// Uses APIs that exist only in the full Foundation, such as `URLSession`.
     case needsFullFoundation
+    /// No full-Foundation APIs found, but besides switching to `FoundationEssentials` the code needs a
+    /// one-line fix, such as `import Dispatch`, because `import Foundation` re-exports more modules.
+    case oneLineFix
     /// No full-Foundation APIs found: switching to `FoundationEssentials` looks straightforward.
     case likelyEasy
 }
@@ -31,6 +34,8 @@ public struct Finding: Codable, Sendable {
     public var appleOnlyImports: [String]
     /// Full-Foundation APIs the target uses, by `FullFoundationAPI` raw value.
     public var fullFoundationAPIs: [String: [String]]
+    /// Changes the target needs besides switching the import, such as `import Dispatch`.
+    public var oneLineFixes: [OneLineFix]
 }
 
 /// A reachable target that doesn't import Foundation but imports an Apple-only framework.
@@ -183,7 +188,7 @@ public struct Analyzer {
                   var scan = scans[key]
             else { continue }
             if !scan.causes.isEmpty {
-                scan.removeAPIs(declaredIn: names(visibleIn: key))
+                scan.removeAPIs(declaredIn: names(visibleIn: key).union(scan.localNames))
             }
 
             var chain: [ChainStep] = []
@@ -207,6 +212,8 @@ public struct Analyzer {
                 .appleOnly
             } else if !scan.fullFoundationAPIs.isEmpty {
                 .needsFullFoundation
+            } else if !scan.oneLineFixes.isEmpty {
+                .oneLineFix
             } else {
                 .likelyEasy
             }
@@ -217,7 +224,15 @@ public struct Analyzer {
                 causes: scan.causes,
                 verdict: verdict,
                 appleOnlyImports: scan.appleOnlyImports,
-                fullFoundationAPIs: Dictionary(uniqueKeysWithValues: scan.fullFoundationAPIs.map { ($0.key.rawValue, $0.value.sorted()) })
+                fullFoundationAPIs: Dictionary(uniqueKeysWithValues: scan.fullFoundationAPIs.map { ($0.key.rawValue, $0.value.sorted()) }),
+                oneLineFixes: scan.oneLineFixes.sorted { $0.key < $1.key }.map { kind, files in
+                    OneLineFix(
+                        kind: kind,
+                        suggestion: kind.suggestion(for: platform),
+                        symbols: files.values.reduce(into: Set()) { $0.formUnion($1) }.sorted(),
+                        files: files.keys.sorted()
+                    )
+                }
             ))
         }
 
@@ -265,14 +280,33 @@ public struct Analyzer {
         var appleOnlyImports: [String] = []
         var fullFoundationAPIs: [FullFoundationAPI: Set<String>] = [:]
         var declaredNames: Set<String> = []
+        var localNames: Set<String> = []
+        /// Names that need a one-line fix, by kind and file.
+        var oneLineFixes: [OneLineFix.Kind: [String: Set<String>]] = [:]
 
-        /// Drops the APIs whose names the code declares itself.
+        /// Drops the APIs and C library names that the code declares itself.
         mutating func removeAPIs(declaredIn names: Set<String>) {
             for (api, symbols) in fullFoundationAPIs {
                 let remaining = symbols.filter { !FullFoundationAPI.isShadowed($0, by: names) }
                 fullFoundationAPIs[api] = remaining.isEmpty ? nil : remaining
             }
+            for (kind, files) in oneLineFixes where kind != .qualifier {
+                let remaining = files.mapValues { $0.subtracting(names) }.filter { !$0.value.isEmpty }
+                oneLineFixes[kind] = remaining.isEmpty ? nil : remaining
+            }
         }
+    }
+
+    /// The path of `file` relative to the package directory, or the full path if it is outside.
+    static func relativePath(of file: URL, in packageDirectory: URL) -> String {
+        // The enumerated files can be behind a symlink that the package path isn't, such as /private/var on
+        // macOS, so the resolved paths are compared too.
+        for (path, base) in [(file.path, packageDirectory.path), (file.resolvingSymlinksInPath().path, packageDirectory.resolvingSymlinksInPath().path)] {
+            if path.hasPrefix(base + "/") {
+                return String(path.dropFirst(base.count + 1))
+            }
+        }
+        return file.path
     }
 
     static func scan(
@@ -290,7 +324,7 @@ public struct Analyzer {
 
         for file in files {
             guard let source = try? String(contentsOf: file, encoding: .utf8) else { continue }
-            let relativePath = file.path.replacingOccurrences(of: package.path.path + "/", with: "")
+            let relativePath = Self.relativePath(of: file, in: package.path)
             let fileScan = ImportScanner.scan(source, configuration: configuration)
             for heavyImport in fileScan.heavyImports {
                 result.causes.append(.import(file: relativePath, heavyImport))
@@ -302,6 +336,10 @@ public struct Analyzer {
                 result.fullFoundationAPIs[api, default: []].formUnion(symbols)
             }
             result.declaredNames.formUnion(fileScan.declaredNames)
+            result.localNames.formUnion(fileScan.localNames)
+            for (kind, symbols) in fileScan.oneLineFixes {
+                result.oneLineFixes[kind, default: [:]][relativePath] = symbols
+            }
         }
         return result
     }

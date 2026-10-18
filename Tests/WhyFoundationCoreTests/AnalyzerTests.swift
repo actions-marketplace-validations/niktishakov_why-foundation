@@ -62,4 +62,35 @@ import Testing
         ], targets: [target("Text")])
         #expect(report.findings.first?.fullFoundationAPIs == ["corelibsOnly": ["range(of:)"]])
     }
+
+    @Test func oneLineFix() throws {
+        let files = [
+            "Sources/Repeat/Repeater.swift": """
+            import Foundation
+            let queue = DispatchQueue(label: "repeater")
+            func describe(_ stat: Int) -> String { "\\(stat)" }
+            """,
+            "Sources/Repeat/Debouncer.swift": """
+            import Foundation
+            let deadline = DispatchTime.now()
+            """,
+        ]
+        let report = try analyze(files, targets: [target("Repeat")])
+        let finding = try #require(report.findings.first)
+        #expect(finding.verdict == .oneLineFix)
+        #expect(finding.oneLineFixes == [OneLineFix(
+            kind: .dispatch, suggestion: "add `import Dispatch`", symbols: ["DispatchQueue", "DispatchTime"],
+            files: ["Sources/Repeat/Debouncer.swift", "Sources/Repeat/Repeater.swift"]
+        )])
+        #expect(report.text().contains("  fix: add `import Dispatch` in 2 files (DispatchQueue, DispatchTime)"))
+    }
+
+    @Test func libcFixDependsOnThePlatform() throws {
+        let files = ["Sources/Rainbow/Rainbow.swift": "import Foundation\nlet isTerminal = isatty(1) != 0\n"]
+        let android = try analyze(files, targets: [target("Rainbow")], platform: .android)
+        let linux = try analyze(files, targets: [target("Rainbow")], platform: .linux)
+        #expect(android.findings.first?.oneLineFixes.map(\.suggestion) == ["add `import Android`"])
+        #expect(linux.findings.first?.oneLineFixes.first?.suggestion.hasPrefix("add `import Glibc`") == true)
+        #expect(android.text().contains("  fix: add `import Android` in Sources/Rainbow/Rainbow.swift (isatty)"))
+    }
 }

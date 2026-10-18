@@ -226,3 +226,60 @@ import Testing
         #expect(apis(legacy) == [.corelibsOnly: ["addObserver(forName:)", "Notification"]])
     }
 }
+
+/// Code that breaks after switching only because `import Foundation` re-exports the C library and Dispatch.
+@Suite struct OneLineFixTests {
+    let configuration = PlatformBuildConfiguration(platform: .android, graphModules: [])
+
+    func fixes(_ source: String) -> [OneLineFix.Kind: Set<String>] {
+        ImportScanner.scan(source, configuration: configuration).oneLineFixes
+    }
+
+    @Test func reexportedModules() {
+        // From Repeat, Factory, Rainbow and PostgresNIO.
+        let source = """
+        import Foundation
+        let queue = DispatchQueue(label: "timer")
+        var mutex = pthread_mutex_t()
+        let isTerminal = isatty(fileno(stdout)) != 0
+        let decoder = Foundation.JSONDecoder()
+        extension Foundation.Date {}
+        """
+        #expect(fixes(source) == [
+            .dispatch: ["DispatchQueue"],
+            .libc: ["pthread_mutex_t", "isatty", "fileno", "stdout"],
+            .qualifier: ["Foundation.JSONDecoder", "Foundation.Date"],
+        ])
+    }
+
+    @Test func alreadyImported() {
+        let source = """
+        import Foundation
+        import Dispatch
+        #if canImport(Glibc)
+        import Glibc
+        #elseif canImport(Android)
+        import Android
+        #endif
+        let queue = DispatchQueue(label: "timer")
+        let isTerminal = isatty(1) != 0
+        """
+        #expect(fixes(source).isEmpty)
+    }
+
+    @Test func onlyFreeNamesInFilesThatImportFoundation() {
+        let members = """
+        import Foundation
+        let size = file.stat.size
+        let rounded = value.round
+        let mode: Mode = .read
+        """
+        #expect(fixes(members).isEmpty)
+
+        let essentials = """
+        import FoundationEssentials
+        let queue = DispatchQueue(label: "timer")
+        """
+        #expect(fixes(essentials).isEmpty)
+    }
+}

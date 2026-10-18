@@ -154,6 +154,11 @@ struct FileScan: Equatable {
     /// Types, functions, properties and enum cases the file declares in active code. Functions are also
     /// listed as `name(firstLabel:)`.
     var declaredNames: Set<String> = []
+    /// Parameters and local variables: visible only in this file.
+    var localNames: Set<String> = []
+    /// Names that need another change once the file imports FoundationEssentials instead of Foundation.
+    /// Empty unless the file imports Foundation.
+    var oneLineFixes: [OneLineFix.Kind: Set<String>] = [:]
 }
 
 enum ImportScanner {
@@ -170,8 +175,10 @@ enum ImportScanner {
         collector.walk(tree)
 
         var result = FileScan()
+        var importedModules: Set<String> = []
         for decl in collector.imports where regions.isActive(decl) == .active {
             guard let name = decl.path.first?.name.text else { continue }
+            importedModules.insert(name)
             if let module = HeavyModule(rawValue: name) {
                 let isExported = decl.attributes.contains { element in
                     element.as(AttributeSyntax.self)?.attributeName.trimmedDescription == "_exported"
@@ -182,13 +189,20 @@ enum ImportScanner {
                 result.appleOnlyImports.append(name)
             }
         }
+        let importsFoundation = result.heavyImports.contains { $0.module == .foundation }
         for token in collector.symbolTokens where regions.isActive(token) == .active {
             if let (api, name) = FullFoundationAPI.match(token) {
                 result.fullFoundationAPIs[api, default: []].insert(name)
+            } else if importsFoundation, let (kind, name) = OneLineFix.match(token),
+                      kind.coveringModules.isDisjoint(with: importedModules) {
+                result.oneLineFixes[kind, default: []].insert(name)
             }
         }
         for name in collector.declaredNames where regions.isActive(name) == .active {
             result.declaredNames.insert(name.text.filter { $0 != "`" })
+        }
+        for name in collector.localNames where regions.isActive(name) == .active {
+            result.localNames.insert(name.text.filter { $0 != "`" })
         }
         for function in collector.declaredFunctions where regions.isActive(function.token) == .active {
             result.declaredNames.insert(function.key)
@@ -201,6 +215,9 @@ private final class Collector: SyntaxVisitor {
     var imports: [ImportDeclSyntax] = []
     var symbolTokens: [TokenSyntax] = []
     var declaredNames: [TokenSyntax] = []
+    /// Declared functions, as `name(firstLabel:)`, with the token that decides whether they are active.
+    var declaredFunctions: [(key: String, token: TokenSyntax)] = []
+    var localNames: [TokenSyntax] = []
 
     override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
         imports.append(node)
@@ -226,16 +243,33 @@ private final class Collector: SyntaxVisitor {
     override func visit(_ node: EnumCaseElementSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+        let isLocal = node.ancestorOrSelf { $0.is(CodeBlockSyntax.self) || $0.is(ClosureExprSyntax.self) } != nil
         for binding in node.bindings {
             if let pattern = binding.pattern.as(IdentifierPatternSyntax.self) {
-                declaredNames.append(pattern.identifier)
+                if isLocal {
+                    localNames.append(pattern.identifier)
+                } else {
+                    declaredNames.append(pattern.identifier)
+                }
             }
         }
         return .visitChildren
     }
 
-    /// Declared functions, as `name(firstLabel:)`, with the token that decides whether they are active.
-    var declaredFunctions: [(key: String, token: TokenSyntax)] = []
+    override func visit(_ node: FunctionParameterSyntax) -> SyntaxVisitorContinueKind {
+        localNames.append(node.secondName ?? node.firstName)
+        return .visitChildren
+    }
+
+    override func visit(_ node: ClosureParameterSyntax) -> SyntaxVisitorContinueKind {
+        localNames.append(node.secondName ?? node.firstName)
+        return .visitChildren
+    }
+
+    override func visit(_ node: ClosureShorthandParameterSyntax) -> SyntaxVisitorContinueKind {
+        localNames.append(node.name)
+        return .visitChildren
+    }
 
     private func declare(_ name: TokenSyntax) -> SyntaxVisitorContinueKind {
         declaredNames.append(name)
@@ -248,7 +282,8 @@ private final class Collector: SyntaxVisitor {
     }
 
     override func visit(_ token: TokenSyntax) -> SyntaxVisitorContinueKind {
-        if case .identifier = token.tokenKind, FullFoundationAPI.isCandidate(token.text) {
+        if case .identifier = token.tokenKind,
+           FullFoundationAPI.isCandidate(token.text) || OneLineFix.kind(of: token.text) != nil {
             symbolTokens.append(token)
         }
         return .skipChildren
