@@ -27,6 +27,15 @@ jobs:
       - name: Check that the second run failed
         shell: bash
         run: test "${{ steps.resources.outcome }}" = failure
+      - name: Package that SwiftPM can't load fails
+        id: conflict
+        continue-on-error: true
+        uses: ./
+        with:
+          package-path: Fixtures/conflict
+      - name: Check that the third run failed
+        shell: bash
+        run: test "${{ steps.conflict.outcome }}" = failure
 
   published:
     strategy:

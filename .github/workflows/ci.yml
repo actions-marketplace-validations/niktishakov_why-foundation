@@ -14,6 +14,15 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+      - name: Exit codes
+        shell: bash
+        run: |
+          swift build --product why-foundation
+          bin=.build/debug/why-foundation
+          "$bin" -p Fixtures/clean
+          set +e
+          "$bin" -p Fixtures/resources; test $? = 1 || exit 1
+          "$bin" -p Fixtures/conflict; test $? = 2 || exit 1
 
   linux:
     runs-on: ubuntu-latest
@@ -24,3 +33,12 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+      - name: Exit codes
+        shell: bash
+        run: |
+          swift build --product why-foundation
+          bin=.build/debug/why-foundation
+          "$bin" -p Fixtures/clean
+          set +e
+          "$bin" -p Fixtures/resources; test $? = 1 || exit 1
+          "$bin" -p Fixtures/conflict; test $? = 2 || exit 1

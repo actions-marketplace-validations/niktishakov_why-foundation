@@ -74,4 +74,12 @@ runs:
         if [ "$WF_INCLUDE_TESTS" = true ]; then args+=(--include-tests); fi
         if [ "$WF_VERBOSE" = true ]; then args+=(--verbose); fi
 
+        # Exit code 1: something pulls in the full Foundation. 2: the package graph couldn't be read.
+        set +e
         "$dir/why-foundation" "${args[@]}"
+        code=$?
+        set -e
+        if [ "$code" = 2 ]; then
+          echo "::error::why-foundation could not analyze the package. See the error above."
+        fi
+        exit "$code"

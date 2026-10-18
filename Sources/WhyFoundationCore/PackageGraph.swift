@@ -90,9 +90,18 @@ public enum GraphLoadingError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .commandFailed(let command, let output): "`\(command)` failed:\n\(output)"
+        case .commandFailed(let command, let output): "`\(command)` failed:\n\(Self.errorLines(in: output))"
         case .unexpectedOutput(let command): "`\(command)` returned output that could not be read"
         }
+    }
+
+    /// The lines of SwiftPM's output that say what went wrong, without the progress lines
+    /// ("Fetching ...", "Computing version ...") that come before them.
+    static func errorLines(in output: String) -> String {
+        let lines = output.split(whereSeparator: \.isNewline)
+        let errors = lines.filter { $0.hasPrefix("error:") || $0.contains(": error:") }
+        // If SwiftPM printed no `error:` line, the last lines are the most useful ones.
+        return (errors.isEmpty ? lines.suffix(10) : errors[...]).joined(separator: "\n")
     }
 }
 

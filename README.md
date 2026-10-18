@@ -88,7 +88,14 @@ why-foundation --json
 | `--json` | Machine-readable output. |
 | `--verbose` | List every import instead of the first few per target. |
 
-The exit code is 1 when anything pulls in Foundation, so you can use it in CI.
+Exit codes, for CI:
+
+| Code | Meaning |
+|---|---|
+| 0 | Nothing pulls in the full Foundation. |
+| 1 | Something pulls in the full Foundation. |
+| 2 | The analysis didn't run, for example because SwiftPM couldn't load the package graph. Only SwiftPM's `error:` lines are printed. |
+| 64 | Wrong command-line arguments. |
 
 ### In CI
 
@@ -100,7 +107,7 @@ With the GitHub Action, after the step that sets up Swift:
     product: MyLibrary
 ```
 
-The job fails when anything pulls in the full Foundation. Inputs: `version` (default `latest`), `package-path`, `product`, `platform` (`android` or `linux`), `include-tests` and `verbose`. The action downloads a prebuilt binary, so it takes seconds, and it runs on Linux and macOS runners.
+The job fails when anything pulls in the full Foundation, or when the package can't be analyzed (exit code 2, with an error annotation). Inputs: `version` (default `latest`), `package-path`, `product`, `platform` (`android` or `linux`), `include-tests` and `verbose`. The action downloads a prebuilt binary, so it takes seconds, and it runs on Linux and macOS runners.
 
 Or call the binary yourself:
 
