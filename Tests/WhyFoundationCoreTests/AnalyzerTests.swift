@@ -51,6 +51,19 @@ import Testing
         #expect(report.findings.map(\.verdict) == [.likelyEasy])
     }
 
+    @Test func ownTypeWrappingFoundations() throws {
+        // OpenCombine declares its own Timer on top of Foundation.Timer.
+        let report = try analyze([
+            "Sources/OpenCombineFoundation/Portability.swift": """
+            import Foundation
+            internal struct Timer {
+                fileprivate typealias UnderlyingTimer = Foundation.Timer
+            }
+            """,
+        ], targets: [target("OpenCombineFoundation")])
+        #expect(report.findings.first?.fullFoundationAPIs == ["corelibsOnly": ["Timer"]])
+    }
+
     @Test func ownMembersWithTheSameName() throws {
         let report = try analyze([
             "Sources/Text/Text.swift": """

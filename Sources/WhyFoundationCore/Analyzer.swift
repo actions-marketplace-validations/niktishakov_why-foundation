@@ -294,13 +294,14 @@ public struct Analyzer {
         var fullFoundationAPIs: [FullFoundationAPI: Set<String>] = [:]
         var declaredNames: Set<String> = []
         var localNames: Set<String> = []
+        var qualifiedAPIs: Set<String> = []
         /// Names that need a one-line fix, by kind and file.
         var oneLineFixes: [OneLineFix.Kind: [String: Set<String>]] = [:]
 
         /// Drops the APIs and C library names that the code declares itself.
         mutating func removeAPIs(declaredIn names: Set<String>) {
             for (api, symbols) in fullFoundationAPIs {
-                let remaining = symbols.filter { !FullFoundationAPI.isShadowed($0, by: names) }
+                let remaining = symbols.filter { qualifiedAPIs.contains($0) || !FullFoundationAPI.isShadowed($0, by: names) }
                 fullFoundationAPIs[api] = remaining.isEmpty ? nil : remaining
             }
             for (kind, files) in oneLineFixes where kind != .qualifier {
@@ -368,6 +369,7 @@ public struct Analyzer {
             }
             result.declaredNames.formUnion(fileScan.declaredNames)
             result.localNames.formUnion(fileScan.localNames)
+            result.qualifiedAPIs.formUnion(fileScan.qualifiedAPIs)
             for (kind, symbols) in fileScan.oneLineFixes {
                 result.oneLineFixes[kind, default: [:]][relativePath] = symbols
             }

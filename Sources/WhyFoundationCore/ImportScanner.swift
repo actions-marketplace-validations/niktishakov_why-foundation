@@ -166,6 +166,8 @@ struct FileScan: Equatable {
     /// Names that need another change once the file imports FoundationEssentials instead of Foundation.
     /// Empty unless the file imports Foundation.
     var oneLineFixes: [OneLineFix.Kind: Set<String>] = [:]
+    /// Full-Foundation APIs written as `Foundation.X`: Foundation's even if the package declares an `X` too.
+    var qualifiedAPIs: Set<String> = []
 }
 
 enum ImportScanner {
@@ -200,6 +202,10 @@ enum ImportScanner {
         for token in collector.symbolTokens where regions.isActive(token) == .active {
             if let (api, name) = FullFoundationAPI.match(token) {
                 result.fullFoundationAPIs[api, default: []].insert(name)
+                if let period = token.previousToken(viewMode: .sourceAccurate), period.tokenKind == .period,
+                   period.previousToken(viewMode: .sourceAccurate)?.text == "Foundation" {
+                    result.qualifiedAPIs.insert(name)
+                }
             } else if importsFoundation, let (kind, name) = OneLineFix.match(token),
                       kind.coveringModules.isDisjoint(with: importedModules) {
                 result.oneLineFixes[kind, default: []].insert(name)
