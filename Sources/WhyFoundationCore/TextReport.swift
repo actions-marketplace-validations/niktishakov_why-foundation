@@ -33,6 +33,9 @@ extension Report {
             lines.append("── Don't import Foundation, but import Apple-only frameworks (won't build for \(platform)) ──")
             for target in appleOnlyTargets {
                 lines.append("  \(target.package) › \(target.target): \(target.modules.joined(separator: ", "))")
+                if let hint = darwinHint(target.modules) {
+                    lines.append("    " + hint)
+                }
             }
         }
         if !binaryTargets.isEmpty {
@@ -44,6 +47,13 @@ extension Report {
             lines.append(versionNote)
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Code like `#if os(Linux) import Glibc #else import Darwin #endif` imports Darwin on Android. When that
+    /// is the only Apple-only import, an Android branch is often all the target needs.
+    private func darwinHint(_ modules: [String]) -> String? {
+        guard platform == TargetPlatform.android.rawValue, modules == ["Darwin"] else { return nil }
+        return "hint: only Darwin is Apple-only here; an `#elseif canImport(Android)` branch with `import Android` may be enough"
     }
 
     /// Says how the APIs that only newer FoundationEssentials releases have were counted.
@@ -63,6 +73,9 @@ extension Report {
         lines.append("  path: " + finding.chain.map(\.label).joined(separator: " → "))
         if !finding.appleOnlyImports.isEmpty {
             lines.append("  imports: " + finding.appleOnlyImports.joined(separator: ", "))
+            if let hint = darwinHint(finding.appleOnlyImports) {
+                lines.append("  " + hint)
+            }
         }
         let apis = FullFoundationAPI.allCases.compactMap { api -> String? in
             guard let symbols = finding.fullFoundationAPIs[api.rawValue], !symbols.isEmpty else { return nil }

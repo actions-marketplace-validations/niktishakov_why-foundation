@@ -99,6 +99,24 @@ import Testing
         #expect(android.text().contains("  fix: add `import Android` in Sources/Rainbow/Rainbow.swift (isatty)"))
     }
 
+    @Test func darwinWithoutAnAndroidBranch() throws {
+        // Commander: fine on Linux, but imports Darwin on Android.
+        let files = ["Sources/Commander/Error.swift": """
+        #if os(Linux)
+        import Glibc
+        #else
+        import Darwin
+        #endif
+        import Foundation
+        """]
+        let android = try analyze(files, targets: [target("Commander")], platform: .android)
+        #expect(android.findings.first?.verdict == .appleOnly)
+        #expect(android.text().contains("  hint: only Darwin is Apple-only here; an `#elseif canImport(Android)` branch"))
+        let linux = try analyze(files, targets: [target("Commander")], platform: .linux)
+        #expect(linux.findings.first?.verdict == .likelyEasy)
+        #expect(!linux.text().contains("hint:"))
+    }
+
     @Test func characterSetDependsOnTheSwiftVersion() throws {
         // Splash: CharacterSet is in FoundationEssentials on main, not in 6.4.x.
         let files = ["Sources/Splash/Tokenizer.swift": "import Foundation\nlet delimiters = CharacterSet(charactersIn: \".,\")\n"]
