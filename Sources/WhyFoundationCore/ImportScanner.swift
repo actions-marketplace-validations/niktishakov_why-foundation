@@ -39,7 +39,7 @@ public enum FullFoundationAPI: String, Codable, CaseIterable, Comparable, Sendab
         "ByteCountFormatter": .formatting, "ListFormatter": .formatting,
         "PersonNameComponentsFormatter": .formatting, "NSRegularExpression": .formatting,
         "JSONSerialization": .corelibsOnly, "PropertyListSerialization": .corelibsOnly, "Bundle": .corelibsOnly,
-        "NotificationCenter": .corelibsOnly, "Timer": .corelibsOnly, "RunLoop": .corelibsOnly,
+        "Timer": .corelibsOnly, "RunLoop": .corelibsOnly,
         "OperationQueue": .corelibsOnly, "Thread": .corelibsOnly, "NSLock": .corelibsOnly,
         "NSRecursiveLock": .corelibsOnly, "NSCondition": .corelibsOnly, "Scanner": .corelibsOnly,
         "NSString": .corelibsOnly, "NSNumber": .corelibsOnly, "NSDictionary": .corelibsOnly,

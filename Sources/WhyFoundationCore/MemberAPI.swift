@@ -44,6 +44,8 @@ struct MemberAPI: Sendable {
             api: .corelibsOnly, label: "fileSystemRepresentation(withPath:)", firstLabels: ["withPath"]
         ),
         "checkResourceIsReachable": MemberAPI(api: .corelibsOnly, label: "checkResourceIsReachable"),
+        // FoundationEssentials has NotificationCenter, but only with the message API (`addObserver(of:for:using:)`).
+        "addObserver": MemberAPI(api: .corelibsOnly, label: "addObserver(forName:)", firstLabels: ["forName"]),
     ]
 
     /// Initializers missing from FoundationEssentials, by type name.

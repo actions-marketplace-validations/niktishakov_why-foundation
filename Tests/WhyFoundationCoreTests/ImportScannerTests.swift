@@ -208,4 +208,21 @@ import Testing
         """
         #expect(apis(source) == [.networking: ["URLSessionTaskDelegate", "URLError"], .corelibsOnly: ["NSObject"]])
     }
+
+    @Test func notificationCenter() {
+        // FoundationEssentials has NotificationCenter with the message API, but not the legacy observers.
+        let messages = """
+        import FoundationEssentials
+        let token = NotificationCenter.default.addObserver(of: subject, for: .didUpdate) { message in }
+        NotificationCenter.default.post(DidUpdate())
+        """
+        #expect(apis(messages).isEmpty)
+
+        let legacy = """
+        import Foundation
+        NotificationCenter.default.addObserver(forName: .didUpdate, object: nil, queue: nil) { _ in }
+        let name = Notification.Name("didUpdate")
+        """
+        #expect(apis(legacy) == [.corelibsOnly: ["addObserver(forName:)", "Notification"]])
+    }
 }
