@@ -90,6 +90,23 @@ public enum FullFoundationAPI: String, Codable, CaseIterable, Comparable, Sendab
             || prefixed(name) != nil
     }
 
+    /// Whether `symbol`, as the report shows it, is a name that `declaredNames` contains, such as a type of
+    /// the package's own called `Timer`.
+    static func isShadowed(_ symbol: String, by declaredNames: Set<String>) -> Bool {
+        // Error types often declare a `localizedDescription` of their own, and the code still calls it on
+        // `any Error`.
+        guard symbol != "localizedDescription" else { return false }
+        let name = String(symbol.prefix { $0 != "(" })
+        // An API matched by its argument labels is shadowed only by a function with the same first label:
+        // a property named `range` doesn't hide `range(of:)`.
+        let labelled = MemberAPI.members[name].map { [$0] } ?? MemberAPI.initializers[name] ?? []
+        if let api = labelled.first(where: { $0.label == symbol }), let firstLabels = api.firstLabels {
+            let function = MemberAPI.initializers[name] == nil ? name : "init"
+            return firstLabels.contains { declaredNames.contains("\(function)(\($0):)") }
+        }
+        return declaredNames.contains(name)
+    }
+
     /// The API `token` refers to and the name the report shows for it.
     static func match(_ token: TokenSyntax) -> (api: FullFoundationAPI, name: String)? {
         let name = token.text
@@ -134,6 +151,9 @@ struct FileScan: Equatable {
     var appleOnlyImports: [String] = []
     /// Full-Foundation APIs referenced in active code.
     var fullFoundationAPIs: [FullFoundationAPI: Set<String>] = [:]
+    /// Types, functions, properties and enum cases the file declares in active code. Functions are also
+    /// listed as `name(firstLabel:)`.
+    var declaredNames: Set<String> = []
 }
 
 enum ImportScanner {
@@ -167,6 +187,12 @@ enum ImportScanner {
                 result.fullFoundationAPIs[api, default: []].insert(name)
             }
         }
+        for name in collector.declaredNames where regions.isActive(name) == .active {
+            result.declaredNames.insert(name.text.filter { $0 != "`" })
+        }
+        for function in collector.declaredFunctions where regions.isActive(function.token) == .active {
+            result.declaredNames.insert(function.key)
+        }
         return result
     }
 }
@@ -174,10 +200,51 @@ enum ImportScanner {
 private final class Collector: SyntaxVisitor {
     var imports: [ImportDeclSyntax] = []
     var symbolTokens: [TokenSyntax] = []
+    var declaredNames: [TokenSyntax] = []
 
     override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
         imports.append(node)
         return .skipChildren
+    }
+
+    override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+    override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+    override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+    override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+    override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+    override func visit(_ node: TypeAliasDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+    override func visit(_ node: AssociatedTypeDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        declareFunction(node.name.text, node.signature, at: node.name)
+        return declare(node.name)
+    }
+
+    override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+        declareFunction("init", node.signature, at: node.initKeyword)
+        return .visitChildren
+    }
+    override func visit(_ node: EnumCaseElementSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+
+    override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+        for binding in node.bindings {
+            if let pattern = binding.pattern.as(IdentifierPatternSyntax.self) {
+                declaredNames.append(pattern.identifier)
+            }
+        }
+        return .visitChildren
+    }
+
+    /// Declared functions, as `name(firstLabel:)`, with the token that decides whether they are active.
+    var declaredFunctions: [(key: String, token: TokenSyntax)] = []
+
+    private func declare(_ name: TokenSyntax) -> SyntaxVisitorContinueKind {
+        declaredNames.append(name)
+        return .visitChildren
+    }
+
+    private func declareFunction(_ name: String, _ signature: FunctionSignatureSyntax, at token: TokenSyntax) {
+        let label = signature.parameterClause.parameters.first?.firstName.text ?? "_"
+        declaredFunctions.append(("\(name)(\(label):)", token))
     }
 
     override func visit(_ token: TokenSyntax) -> SyntaxVisitorContinueKind {

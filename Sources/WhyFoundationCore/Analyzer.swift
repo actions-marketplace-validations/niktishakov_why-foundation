@@ -110,6 +110,8 @@ public struct Analyzer {
         }
 
         var visitOrder: [Key] = []
+        // The targets each target depends on, for the names visible in it.
+        var dependencies: [Key: [Key]] = [:]
         var binaryTargets: [String] = []
         var index = 0
         while index < queue.count {
@@ -133,17 +135,19 @@ public struct Analyzer {
                 if let traits = condition.traits, package.enabledTraits.isDisjoint(with: traits) {
                     continue
                 }
-                for (next, viaProduct) in resolve(dependency, from: package) where parents[next] == nil {
-                    parents[next] = (key, viaProduct)
-                    queue.append(next)
+                for (next, viaProduct) in resolve(dependency, from: package) {
+                    dependencies[key, default: []].append(next)
+                    if parents[next] == nil {
+                        parents[next] = (key, viaProduct)
+                        queue.append(next)
+                    }
                 }
             }
         }
 
         let graphModules = Set(graph.packages.flatMap { $0.targets.keys })
 
-        var findings: [Finding] = []
-        var appleOnlyTargets: [AppleOnlyTarget] = []
+        var scans: [Key: TargetScan] = [:]
         for key in visitOrder {
             guard let package = graph.package(named: key.package),
                   let target = package.targets[key.target]
@@ -153,7 +157,34 @@ public struct Analyzer {
                 graphModules: graphModules,
                 customConditions: package.enabledTraits.union(target.activeDefines(for: platform))
             )
-            let scan = Self.scan(target, in: package, configuration: configuration)
+            scans[key] = Self.scan(target, in: package, configuration: configuration)
+        }
+
+        // Names declared by a target and by everything it depends on: a type of the package's own
+        // called `Timer` isn't Foundation's.
+        func names(visibleIn key: Key) -> Set<String> {
+            var names: Set<String> = []
+            var stack = [key]
+            var seen: Set<Key> = [key]
+            while let next = stack.popLast() {
+                names.formUnion(scans[next]?.declaredNames ?? [])
+                for dependency in dependencies[next] ?? [] where seen.insert(dependency).inserted {
+                    stack.append(dependency)
+                }
+            }
+            return names
+        }
+
+        var findings: [Finding] = []
+        var appleOnlyTargets: [AppleOnlyTarget] = []
+        for key in visitOrder {
+            guard let package = graph.package(named: key.package),
+                  let target = package.targets[key.target],
+                  var scan = scans[key]
+            else { continue }
+            if !scan.causes.isEmpty {
+                scan.removeAPIs(declaredIn: names(visibleIn: key))
+            }
 
             var chain: [ChainStep] = []
             var cursor: Key? = key
@@ -233,6 +264,15 @@ public struct Analyzer {
         var causes: [Cause] = []
         var appleOnlyImports: [String] = []
         var fullFoundationAPIs: [FullFoundationAPI: Set<String>] = [:]
+        var declaredNames: Set<String> = []
+
+        /// Drops the APIs whose names the code declares itself.
+        mutating func removeAPIs(declaredIn names: Set<String>) {
+            for (api, symbols) in fullFoundationAPIs {
+                let remaining = symbols.filter { !FullFoundationAPI.isShadowed($0, by: names) }
+                fullFoundationAPIs[api] = remaining.isEmpty ? nil : remaining
+            }
+        }
     }
 
     static func scan(
@@ -261,6 +301,7 @@ public struct Analyzer {
             for (api, symbols) in fileScan.fullFoundationAPIs {
                 result.fullFoundationAPIs[api, default: []].formUnion(symbols)
             }
+            result.declaredNames.formUnion(fileScan.declaredNames)
         }
         return result
     }

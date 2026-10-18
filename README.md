@@ -146,7 +146,7 @@ Known limits:
 
 - `Package.swift` is evaluated on the machine where you run the tool, as it is when you build. A manifest that adds resources under `#if canImport(Darwin)` still adds them when you cross-compile for Android from a Mac, and the report shows that.
 - For Xcode projects, only the Swift package dependencies are analyzed, not the app's own sources. `.xcworkspace` isn't supported yet.
-- Full-Foundation APIs are detected by name. A type of your own called `Bundle` or `Timer` is reported too, and an API missing from the list is not. Treat "likely easy" as a hint: the reliable check is building the target on Linux with `FoundationEssentials`.
+- Full-Foundation APIs are detected by name. Names that the target or its dependencies declare, such as a type of your own called `Timer`, are not counted. An API missing from the list is not reported. Treat "likely easy" as a hint: the reliable check is building the target on Linux with `FoundationEssentials`.
 - Binary targets can't be inspected and are listed separately.
 
 ## License
