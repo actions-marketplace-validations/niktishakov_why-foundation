@@ -106,6 +106,13 @@ public enum GraphLoadingError: Error, CustomStringConvertible {
 }
 
 public enum GraphLoader {
+    /// The version of the toolchain that runs `swift package`, which also provides FoundationEssentials.
+    public static func swiftVersion(swiftExecutable: String = "swift") -> SwiftVersion? {
+        guard let result = try? Command.run([swiftExecutable, "--version"]), result.exitCode == 0 else { return nil }
+        let output = String(decoding: result.output + result.errorOutput, as: UTF8.self)
+        return SwiftVersion(versionOutput: output)
+    }
+
     /// Resolves the package at `packagePath` and loads the manifests of every package in its graph.
     public static func load(packagePath: URL, swiftExecutable: String = "swift") throws -> PackageGraph {
         let tree = try runJSON(swiftExecutable, ["package", "show-dependencies", "--format", "json"], in: packagePath)

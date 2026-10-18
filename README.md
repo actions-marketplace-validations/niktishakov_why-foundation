@@ -87,6 +87,7 @@ why-foundation --json
 | `--include-tests` | Also analyze test targets. |
 | `--json` | Machine-readable output. |
 | `--verbose` | List every import instead of the first few per target. |
+| `--swift-version` | The Swift release whose `FoundationEssentials` to check against, such as `6.4` or `6.5`. Default: the version of `swift` on `PATH`. |
 
 Exit codes, for CI:
 
@@ -107,7 +108,7 @@ With the GitHub Action, after the step that sets up Swift:
     product: MyLibrary
 ```
 
-The job fails when anything pulls in the full Foundation, or when the package can't be analyzed (exit code 2, with an error annotation). Inputs: `version` (default `latest`), `package-path`, `product`, `platform` (`android` or `linux`), `include-tests` and `verbose`. The action downloads a prebuilt binary, so it takes seconds, and it runs on Linux and macOS runners.
+The job fails when anything pulls in the full Foundation, or when the package can't be analyzed (exit code 2, with an error annotation). Inputs: `version` (default `latest`), `package-path`, `product`, `platform` (`android` or `linux`), `include-tests`, `verbose` and `swift-version`. The action downloads a prebuilt binary, so it takes seconds, and it runs on Linux and macOS runners.
 
 Or call the binary yourself:
 
@@ -149,6 +150,7 @@ Known limits:
 - For Xcode projects, only the Swift package dependencies are analyzed, not the app's own sources. `.xcworkspace` isn't supported yet.
 - Full-Foundation APIs are detected by name. Names that the target or its dependencies declare, such as a type of your own called `Timer`, are not counted. An API missing from the list is not reported. Treat "likely easy" as a hint: the reliable check is building the target on Linux with `FoundationEssentials`.
 - Binary targets can't be inspected and are listed separately.
+- What `FoundationEssentials` has depends on the Swift release. `CharacterSet` is in it on swift-foundation main ([#2314](https://github.com/swiftlang/swift-foundation/pull/2314)), not in 6.4.x, so it counts as missing up to 6.4 and not from 6.5. The report says which version it used.
 
 ## License
 

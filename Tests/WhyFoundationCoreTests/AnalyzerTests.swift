@@ -4,7 +4,12 @@ import Testing
 
 @Suite struct AnalyzerTests {
     /// Analyzes a root package made of `files` and `targets`, without SwiftPM.
-    func analyze(_ files: [String: String], targets: [TargetNode], platform: TargetPlatform = .android) throws -> Report {
+    func analyze(
+        _ files: [String: String],
+        targets: [TargetNode],
+        platform: TargetPlatform = .android,
+        swiftVersion: SwiftVersion? = SwiftVersion(6, 4, 1)
+    ) throws -> Report {
         let package = try TemporaryPackage(files: files)
         let root = PackageNode(
             identity: "app", name: "app", path: package.path, products: [:],
@@ -12,7 +17,7 @@ import Testing
         )
         let graph = PackageGraph(root: root, packagesByKey: ["app": root])
         return try withExtendedLifetime(package) {
-            try Analyzer(graph: graph, platform: platform).run()
+            try Analyzer(graph: graph, platform: platform, swiftVersion: swiftVersion).run()
         }
     }
 
@@ -92,5 +97,26 @@ import Testing
         #expect(android.findings.first?.oneLineFixes.map(\.suggestion) == ["add `import Android`"])
         #expect(linux.findings.first?.oneLineFixes.first?.suggestion.hasPrefix("add `import Glibc`") == true)
         #expect(android.text().contains("  fix: add `import Android` in Sources/Rainbow/Rainbow.swift (isatty)"))
+    }
+
+    @Test func characterSetDependsOnTheSwiftVersion() throws {
+        // Splash: CharacterSet is in FoundationEssentials on main, not in 6.4.x.
+        let files = ["Sources/Splash/Tokenizer.swift": "import Foundation\nlet delimiters = CharacterSet(charactersIn: \".,\")\n"]
+        let release = try analyze(files, targets: [target("Splash")], swiftVersion: SwiftVersion(6, 4, 1))
+        #expect(release.findings.first?.verdict == .needsFullFoundation)
+        #expect(release.swiftVersion == "6.4.1")
+        #expect(release.versionDependentAPIs == ["CharacterSet"])
+        #expect(release.text().hasSuffix("""
+        CharacterSet counts as missing: FoundationEssentials has it from Swift 6.5 (on swift-foundation main since #2314). \
+        Checked against Swift 6.4.1; change it with --swift-version.
+        """))
+
+        let main = try analyze(files, targets: [target("Splash")], swiftVersion: SwiftVersion(6, 5, isDevelopment: true))
+        #expect(main.findings.first?.verdict == .likelyEasy)
+        #expect(main.text().contains("CharacterSet doesn't count: FoundationEssentials has it from Swift 6.5"))
+
+        let unknown = try analyze(files, targets: [target("Splash")], swiftVersion: nil)
+        #expect(unknown.findings.first?.verdict == .needsFullFoundation)
+        #expect(unknown.text().hasSuffix("The Swift version is unknown; change it with --swift-version."))
     }
 }

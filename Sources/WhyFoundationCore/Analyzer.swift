@@ -61,6 +61,11 @@ public struct Report: Codable, Sendable {
     public var appleOnlyTargets: [AppleOnlyTarget]
     /// Binary targets in the graph: their imports cannot be inspected.
     public var binaryTargets: [String]
+    /// The Swift release whose FoundationEssentials the APIs were checked against, if known.
+    public var swiftVersion: String? = nil
+    /// APIs found in the reported targets that only some FoundationEssentials releases have, such as
+    /// `CharacterSet`. They count as missing unless `swiftVersion` has them.
+    public var versionDependentAPIs: [String] = []
 }
 
 public enum AnalysisError: Error, CustomStringConvertible {
@@ -78,11 +83,15 @@ public struct Analyzer {
     public var graph: PackageGraph
     public var platform: TargetPlatform
     public var includeTests: Bool
+    /// The Swift release whose FoundationEssentials to check against. When it is unknown, APIs that only
+    /// newer releases have count as missing.
+    public var swiftVersion: SwiftVersion?
 
-    public init(graph: PackageGraph, platform: TargetPlatform, includeTests: Bool = false) {
+    public init(graph: PackageGraph, platform: TargetPlatform, includeTests: Bool = false, swiftVersion: SwiftVersion? = nil) {
         self.graph = graph
         self.platform = platform
         self.includeTests = includeTests
+        self.swiftVersion = swiftVersion
     }
 
     private struct Key: Hashable {
@@ -182,6 +191,7 @@ public struct Analyzer {
 
         var findings: [Finding] = []
         var appleOnlyTargets: [AppleOnlyTarget] = []
+        var versionDependentAPIs: Set<String> = []
         for key in visitOrder {
             guard let package = graph.package(named: key.package),
                   let target = package.targets[key.target],
@@ -189,6 +199,7 @@ public struct Analyzer {
             else { continue }
             if !scan.causes.isEmpty {
                 scan.removeAPIs(declaredIn: names(visibleIn: key).union(scan.localNames))
+                versionDependentAPIs.formUnion(scan.removeAPIs(availableIn: swiftVersion))
             }
 
             var chain: [ChainStep] = []
@@ -241,7 +252,9 @@ public struct Analyzer {
             entryPoints: entryNames,
             findings: findings,
             appleOnlyTargets: appleOnlyTargets,
-            binaryTargets: binaryTargets.sorted()
+            binaryTargets: binaryTargets.sorted(),
+            swiftVersion: swiftVersion?.description,
+            versionDependentAPIs: versionDependentAPIs.sorted()
         )
     }
 
@@ -294,6 +307,24 @@ public struct Analyzer {
                 let remaining = files.mapValues { $0.subtracting(names) }.filter { !$0.value.isEmpty }
                 oneLineFixes[kind] = remaining.isEmpty ? nil : remaining
             }
+        }
+
+        /// Drops the APIs that FoundationEssentials has in `version`. Returns the APIs found whose
+        /// availability depends on the version.
+        mutating func removeAPIs(availableIn version: SwiftVersion?) -> Set<String> {
+            var found: Set<String> = []
+            for (api, symbols) in fullFoundationAPIs {
+                var remaining = symbols
+                for symbol in symbols {
+                    guard let added = FullFoundationAPI.addedToEssentials[symbol] else { continue }
+                    found.insert(symbol)
+                    if let version, version >= added.version {
+                        remaining.remove(symbol)
+                    }
+                }
+                fullFoundationAPIs[api] = remaining.isEmpty ? nil : remaining
+            }
+            return found
         }
     }
 

@@ -39,7 +39,23 @@ extension Report {
             lines.append("")
             lines.append("Not inspected (binary targets): " + binaryTargets.joined(separator: ", "))
         }
+        if !versionDependentAPIs.isEmpty {
+            lines.append("")
+            lines.append(versionNote)
+        }
         return lines.joined(separator: "\n")
+    }
+
+    /// Says how the APIs that only newer FoundationEssentials releases have were counted.
+    private var versionNote: String {
+        let notes = versionDependentAPIs.compactMap { symbol -> String? in
+            guard let added = FullFoundationAPI.addedToEssentials[symbol] else { return nil }
+            let counted = swiftVersion.flatMap { SwiftVersion($0) }.map { $0 < added.version } ?? true
+            let status = counted ? "counts as missing" : "doesn't count"
+            return "\(symbol) \(status): FoundationEssentials has it from Swift \(added.version) (\(added.change))."
+        }
+        let checked = swiftVersion.map { "Checked against Swift \($0)" } ?? "The Swift version is unknown"
+        return (notes + ["\(checked); change it with --swift-version."]).joined(separator: " ")
     }
 
     private func block(for finding: Finding, verbose: Bool) -> [String] {

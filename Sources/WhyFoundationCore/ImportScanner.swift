@@ -73,6 +73,13 @@ public enum FullFoundationAPI: String, Codable, CaseIterable, Comparable, Sendab
         "DirectoryEnumerator": .corelibsOnly, "XMLParser": .corelibsOnly, "XMLParserDelegate": .corelibsOnly,
     ]
 
+    /// APIs that FoundationEssentials got after a release: the first release that has them, and the change
+    /// that added them.
+    static let addedToEssentials: [String: (version: SwiftVersion, change: String)] = [
+        // In FoundationEssentials on swift-foundation main, not in Swift 6.4.x.
+        "CharacterSet": (SwiftVersion(6, 5), "on swift-foundation main since #2314"),
+    ]
+
     /// The API a name stands for when it isn't in `symbols`: Objective-C style `NS` names and
     /// CoreFoundation's `CF` names, none of which FoundationEssentials has.
     static func prefixed(_ name: String) -> FullFoundationAPI? {
