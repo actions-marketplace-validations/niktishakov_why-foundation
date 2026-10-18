@@ -244,6 +244,8 @@ private final class Collector: SyntaxVisitor {
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
     override func visit(_ node: TypeAliasDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
     override func visit(_ node: AssociatedTypeDeclSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+    override func visit(_ node: EnumCaseElementSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
+
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         declareFunction(node.name.text, node.signature, at: node.name)
         return declare(node.name)
@@ -253,7 +255,6 @@ private final class Collector: SyntaxVisitor {
         declareFunction("init", node.signature, at: node.initKeyword)
         return .visitChildren
     }
-    override func visit(_ node: EnumCaseElementSyntax) -> SyntaxVisitorContinueKind { declare(node.name) }
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
         let isLocal = node.ancestorOrSelf { $0.is(CodeBlockSyntax.self) || $0.is(ClosureExprSyntax.self) } != nil

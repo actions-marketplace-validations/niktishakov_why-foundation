@@ -27,7 +27,8 @@ swift-protobuf › SwiftProtobuf
 
 swift-dependencies › Dependencies
   path: Shared → Dependencies (swift-dependencies)
-  uses: URLProtocol, URLRequest, URLSession, URLSessionConfiguration (FoundationNetworking); NSRecursiveLock, NotificationCenter (not in FoundationEssentials)
+  uses: URLProtocol, URLRequest, URLSession, URLSessionConfiguration (FoundationNetworking); NSRecursiveLock, RunLoop, String(format:), replacingOccurrences (not in FoundationEssentials)
+  fix: drop the `Foundation.` qualifier in Sources/Dependencies/DependencyValues.swift (Foundation.UUID)
   Sources/Dependencies/DependencyValues.swift:1  import Foundation
   Sources/Dependencies/DependencyValues/Calendar.swift:2  import Foundation
   Sources/Dependencies/DependencyValues/Date.swift:2  import Foundation
