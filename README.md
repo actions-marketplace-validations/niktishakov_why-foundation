@@ -133,7 +133,7 @@ Each finding gets a verdict:
 | Verdict | Meaning |
 |---|---|
 | Likely easy | No APIs beyond `FoundationEssentials` found. Switching the import is probably enough. |
-| Uses full-Foundation APIs | Uses `URLSession`, legacy formatters, `NSLock`, `Bundle` or similar. Needs real work, or isn't worth changing. |
+| Uses full-Foundation APIs | Uses `URLSession`, legacy formatters, `NSLock`, `Bundle`, `String` methods such as `replacingOccurrences` or similar. Needs real work, or isn't worth changing. |
 | Apple-only | Imports `UIKit`, `SwiftUI` or another Apple framework, so it doesn't build for Android anyway. |
 
 The [Swift Ecosystem Steering Group recommends](https://forums.swift.org/t/the-adoption-of-import-foundationessentials-throughout-the-package-ecosystem/84112/16) switching to `FoundationEssentials` where a package only uses APIs available there. The "likely easy" group is where that applies.

@@ -59,7 +59,51 @@ public enum FullFoundationAPI: String, Codable, CaseIterable, Comparable, Sendab
         "Measurement": .formatting, "Dimension": .formatting, "UnitLength": .formatting, "UnitMass": .formatting,
         "UnitDuration": .formatting, "UnitTemperature": .formatting, "UnitSpeed": .formatting,
         "UnitInformationStorage": .formatting, "SortDescriptor": .formatting,
+        // Found missing by building packages with FoundationEssentials from Swift 6.4.1.
+        "URLError": .networking, "URLSessionDelegate": .networking, "URLSessionTaskDelegate": .networking,
+        "URLSessionDataDelegate": .networking, "URLSessionDownloadDelegate": .networking,
+        "URLSessionDownloadTask": .networking, "URLSessionTaskMetrics": .networking, "URLCredential": .networking,
+        "URLAuthenticationChallenge": .networking, "URLProtectionSpace": .networking,
+        "CachedURLResponse": .networking,
+        "Formatter": .formatting, "FloatingPointFormatStyle": .formatting, "StringTransform": .formatting,
+        "NSTextCheckingResult": .formatting,
+        "CharacterSet": .corelibsOnly, "ObjCBool": .corelibsOnly, "Notification": .corelibsOnly,
+        "Progress": .corelibsOnly, "CGFloat": .corelibsOnly, "Operation": .corelibsOnly,
+        "BlockOperation": .corelibsOnly, "QualityOfService": .corelibsOnly, "URLResourceValues": .corelibsOnly,
+        "DirectoryEnumerator": .corelibsOnly, "XMLParser": .corelibsOnly, "XMLParserDelegate": .corelibsOnly,
     ]
+
+    /// The API a name stands for when it isn't in `symbols`: Objective-C style `NS` names and
+    /// CoreFoundation's `CF` names, none of which FoundationEssentials has.
+    static func prefixed(_ name: String) -> FullFoundationAPI? {
+        for prefix in ["NS", "CF", "kCF"] where name.hasPrefix(prefix) {
+            if let next = name.dropFirst(prefix.count).first, next.isUppercase {
+                return .corelibsOnly
+            }
+        }
+        return nil
+    }
+
+    /// Whether a token with this text may be a full-Foundation API, before its context is checked.
+    static func isCandidate(_ name: String) -> Bool {
+        symbols[name] != nil || MemberAPI.members[name] != nil || MemberAPI.initializers[name] != nil
+            || prefixed(name) != nil
+    }
+
+    /// The API `token` refers to and the name the report shows for it.
+    static func match(_ token: TokenSyntax) -> (api: FullFoundationAPI, name: String)? {
+        let name = token.text
+        if let api = symbols[name] {
+            return (api, name)
+        }
+        if let member = MemberAPI.members[name] {
+            return member.matches(memberName: token) ? (member.api, member.label) : nil
+        }
+        if let initializers = MemberAPI.initializers[name] {
+            return initializers.first { $0.matches(typeName: token) }.map { ($0.api, $0.label) }
+        }
+        return prefixed(name).map { ($0, name) }
+    }
 
     public static func < (lhs: Self, rhs: Self) -> Bool {
         allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
@@ -119,8 +163,8 @@ enum ImportScanner {
             }
         }
         for token in collector.symbolTokens where regions.isActive(token) == .active {
-            if let api = FullFoundationAPI.symbols[token.text] {
-                result.fullFoundationAPIs[api, default: []].insert(token.text)
+            if let (api, name) = FullFoundationAPI.match(token) {
+                result.fullFoundationAPIs[api, default: []].insert(name)
             }
         }
         return result
@@ -137,7 +181,7 @@ private final class Collector: SyntaxVisitor {
     }
 
     override func visit(_ token: TokenSyntax) -> SyntaxVisitorContinueKind {
-        if case .identifier = token.tokenKind, FullFoundationAPI.symbols[token.text] != nil {
+        if case .identifier = token.tokenKind, FullFoundationAPI.isCandidate(token.text) {
             symbolTokens.append(token)
         }
         return .skipChildren
