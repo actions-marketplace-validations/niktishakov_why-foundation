@@ -15,6 +15,9 @@ public enum Verdict: String, Codable, Sendable {
     case appleOnly
     /// Uses APIs that exist only in the full Foundation, such as `URLSession`.
     case needsFullFoundation
+    /// No full-Foundation APIs found, but besides switching to `FoundationEssentials` the code needs a
+    /// one-line fix, such as `import Dispatch`, because `import Foundation` re-exports more modules.
+    case oneLineFix
     /// No full-Foundation APIs found: switching to `FoundationEssentials` looks straightforward.
     case likelyEasy
 }
@@ -31,6 +34,8 @@ public struct Finding: Codable, Sendable {
     public var appleOnlyImports: [String]
     /// Full-Foundation APIs the target uses, by `FullFoundationAPI` raw value.
     public var fullFoundationAPIs: [String: [String]]
+    /// Changes the target needs besides switching the import, such as `import Dispatch`.
+    public var oneLineFixes: [OneLineFix]
 }
 
 /// A reachable target that doesn't import Foundation but imports an Apple-only framework.
@@ -56,6 +61,11 @@ public struct Report: Codable, Sendable {
     public var appleOnlyTargets: [AppleOnlyTarget]
     /// Binary targets in the graph: their imports cannot be inspected.
     public var binaryTargets: [String]
+    /// The Swift release whose FoundationEssentials the APIs were checked against, if known.
+    public var swiftVersion: String? = nil
+    /// APIs found in the reported targets that only some FoundationEssentials releases have, such as
+    /// `CharacterSet`. They count as missing unless `swiftVersion` has them.
+    public var versionDependentAPIs: [String] = []
 }
 
 public enum AnalysisError: Error, CustomStringConvertible {
@@ -73,11 +83,15 @@ public struct Analyzer {
     public var graph: PackageGraph
     public var platform: TargetPlatform
     public var includeTests: Bool
+    /// The Swift release whose FoundationEssentials to check against. When it is unknown, APIs that only
+    /// newer releases have count as missing.
+    public var swiftVersion: SwiftVersion?
 
-    public init(graph: PackageGraph, platform: TargetPlatform, includeTests: Bool = false) {
+    public init(graph: PackageGraph, platform: TargetPlatform, includeTests: Bool = false, swiftVersion: SwiftVersion? = nil) {
         self.graph = graph
         self.platform = platform
         self.includeTests = includeTests
+        self.swiftVersion = swiftVersion
     }
 
     private struct Key: Hashable {
@@ -110,6 +124,8 @@ public struct Analyzer {
         }
 
         var visitOrder: [Key] = []
+        // The targets each target depends on, for the names visible in it.
+        var dependencies: [Key: [Key]] = [:]
         var binaryTargets: [String] = []
         var index = 0
         while index < queue.count {
@@ -133,17 +149,19 @@ public struct Analyzer {
                 if let traits = condition.traits, package.enabledTraits.isDisjoint(with: traits) {
                     continue
                 }
-                for (next, viaProduct) in resolve(dependency, from: package) where parents[next] == nil {
-                    parents[next] = (key, viaProduct)
-                    queue.append(next)
+                for (next, viaProduct) in resolve(dependency, from: package) {
+                    dependencies[key, default: []].append(next)
+                    if parents[next] == nil {
+                        parents[next] = (key, viaProduct)
+                        queue.append(next)
+                    }
                 }
             }
         }
 
         let graphModules = Set(graph.packages.flatMap { $0.targets.keys })
 
-        var findings: [Finding] = []
-        var appleOnlyTargets: [AppleOnlyTarget] = []
+        var scans: [Key: TargetScan] = [:]
         for key in visitOrder {
             guard let package = graph.package(named: key.package),
                   let target = package.targets[key.target]
@@ -153,7 +171,36 @@ public struct Analyzer {
                 graphModules: graphModules,
                 customConditions: package.enabledTraits.union(target.activeDefines(for: platform))
             )
-            let scan = Self.scan(target, in: package, configuration: configuration)
+            scans[key] = Self.scan(target, in: package, configuration: configuration)
+        }
+
+        // Names declared by a target and by everything it depends on: a type of the package's own
+        // called `Timer` isn't Foundation's.
+        func names(visibleIn key: Key) -> Set<String> {
+            var names: Set<String> = []
+            var stack = [key]
+            var seen: Set<Key> = [key]
+            while let next = stack.popLast() {
+                names.formUnion(scans[next]?.declaredNames ?? [])
+                for dependency in dependencies[next] ?? [] where seen.insert(dependency).inserted {
+                    stack.append(dependency)
+                }
+            }
+            return names
+        }
+
+        var findings: [Finding] = []
+        var appleOnlyTargets: [AppleOnlyTarget] = []
+        var versionDependentAPIs: Set<String> = []
+        for key in visitOrder {
+            guard let package = graph.package(named: key.package),
+                  let target = package.targets[key.target],
+                  var scan = scans[key]
+            else { continue }
+            if !scan.causes.isEmpty {
+                scan.removeAPIs(declaredIn: names(visibleIn: key).union(scan.localNames))
+                versionDependentAPIs.formUnion(scan.removeAPIs(availableIn: swiftVersion))
+            }
 
             var chain: [ChainStep] = []
             var cursor: Key? = key
@@ -176,6 +223,8 @@ public struct Analyzer {
                 .appleOnly
             } else if !scan.fullFoundationAPIs.isEmpty {
                 .needsFullFoundation
+            } else if !scan.oneLineFixes.isEmpty {
+                .oneLineFix
             } else {
                 .likelyEasy
             }
@@ -186,7 +235,15 @@ public struct Analyzer {
                 causes: scan.causes,
                 verdict: verdict,
                 appleOnlyImports: scan.appleOnlyImports,
-                fullFoundationAPIs: Dictionary(uniqueKeysWithValues: scan.fullFoundationAPIs.map { ($0.key.rawValue, $0.value.sorted()) })
+                fullFoundationAPIs: Dictionary(uniqueKeysWithValues: scan.fullFoundationAPIs.map { ($0.key.rawValue, $0.value.sorted()) }),
+                oneLineFixes: scan.oneLineFixes.sorted { $0.key < $1.key }.map { kind, files in
+                    OneLineFix(
+                        kind: kind,
+                        suggestion: kind.suggestion(for: platform),
+                        symbols: files.values.reduce(into: Set()) { $0.formUnion($1) }.sorted(),
+                        files: files.keys.sorted()
+                    )
+                }
             ))
         }
 
@@ -195,7 +252,9 @@ public struct Analyzer {
             entryPoints: entryNames,
             findings: findings,
             appleOnlyTargets: appleOnlyTargets,
-            binaryTargets: binaryTargets.sorted()
+            binaryTargets: binaryTargets.sorted(),
+            swiftVersion: swiftVersion?.description,
+            versionDependentAPIs: versionDependentAPIs.sorted()
         )
     }
 
@@ -233,6 +292,53 @@ public struct Analyzer {
         var causes: [Cause] = []
         var appleOnlyImports: [String] = []
         var fullFoundationAPIs: [FullFoundationAPI: Set<String>] = [:]
+        var declaredNames: Set<String> = []
+        var localNames: Set<String> = []
+        var qualifiedAPIs: Set<String> = []
+        /// Names that need a one-line fix, by kind and file.
+        var oneLineFixes: [OneLineFix.Kind: [String: Set<String>]] = [:]
+
+        /// Drops the APIs and C library names that the code declares itself.
+        mutating func removeAPIs(declaredIn names: Set<String>) {
+            for (api, symbols) in fullFoundationAPIs {
+                let remaining = symbols.filter { qualifiedAPIs.contains($0) || !FullFoundationAPI.isShadowed($0, by: names) }
+                fullFoundationAPIs[api] = remaining.isEmpty ? nil : remaining
+            }
+            for (kind, files) in oneLineFixes where kind != .qualifier {
+                let remaining = files.mapValues { $0.subtracting(names) }.filter { !$0.value.isEmpty }
+                oneLineFixes[kind] = remaining.isEmpty ? nil : remaining
+            }
+        }
+
+        /// Drops the APIs that FoundationEssentials has in `version`. Returns the APIs found whose
+        /// availability depends on the version.
+        mutating func removeAPIs(availableIn version: SwiftVersion?) -> Set<String> {
+            var found: Set<String> = []
+            for (api, symbols) in fullFoundationAPIs {
+                var remaining = symbols
+                for symbol in symbols {
+                    guard let added = FullFoundationAPI.addedToEssentials[symbol] else { continue }
+                    found.insert(symbol)
+                    if let version, version >= added.version {
+                        remaining.remove(symbol)
+                    }
+                }
+                fullFoundationAPIs[api] = remaining.isEmpty ? nil : remaining
+            }
+            return found
+        }
+    }
+
+    /// The path of `file` relative to the package directory, or the full path if it is outside.
+    static func relativePath(of file: URL, in packageDirectory: URL) -> String {
+        // The enumerated files can be behind a symlink that the package path isn't, such as /private/var on
+        // macOS, so the resolved paths are compared too.
+        for (path, base) in [(file.path, packageDirectory.path), (file.resolvingSymlinksInPath().path, packageDirectory.resolvingSymlinksInPath().path)] {
+            if path.hasPrefix(base + "/") {
+                return String(path.dropFirst(base.count + 1))
+            }
+        }
+        return file.path
     }
 
     static func scan(
@@ -250,7 +356,7 @@ public struct Analyzer {
 
         for file in files {
             guard let source = try? String(contentsOf: file, encoding: .utf8) else { continue }
-            let relativePath = file.path.replacingOccurrences(of: package.path.path + "/", with: "")
+            let relativePath = Self.relativePath(of: file, in: package.path)
             let fileScan = ImportScanner.scan(source, configuration: configuration)
             for heavyImport in fileScan.heavyImports {
                 result.causes.append(.import(file: relativePath, heavyImport))
@@ -260,6 +366,12 @@ public struct Analyzer {
             }
             for (api, symbols) in fileScan.fullFoundationAPIs {
                 result.fullFoundationAPIs[api, default: []].formUnion(symbols)
+            }
+            result.declaredNames.formUnion(fileScan.declaredNames)
+            result.localNames.formUnion(fileScan.localNames)
+            result.qualifiedAPIs.formUnion(fileScan.qualifiedAPIs)
+            for (kind, symbols) in fileScan.oneLineFixes {
+                result.oneLineFixes[kind, default: [:]][relativePath] = symbols
             }
         }
         return result

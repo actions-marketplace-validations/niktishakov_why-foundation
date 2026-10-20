@@ -33,13 +33,39 @@ extension Report {
             lines.append("── Don't import Foundation, but import Apple-only frameworks (won't build for \(platform)) ──")
             for target in appleOnlyTargets {
                 lines.append("  \(target.package) › \(target.target): \(target.modules.joined(separator: ", "))")
+                if let hint = darwinHint(target.modules) {
+                    lines.append("    " + hint)
+                }
             }
         }
         if !binaryTargets.isEmpty {
             lines.append("")
             lines.append("Not inspected (binary targets): " + binaryTargets.joined(separator: ", "))
         }
+        if !versionDependentAPIs.isEmpty {
+            lines.append("")
+            lines.append(versionNote)
+        }
         return lines.joined(separator: "\n")
+    }
+
+    /// Code like `#if os(Linux) import Glibc #else import Darwin #endif` imports Darwin on Android. When that
+    /// is the only Apple-only import, an Android branch is often all the target needs.
+    private func darwinHint(_ modules: [String]) -> String? {
+        guard platform == TargetPlatform.android.rawValue, modules == ["Darwin"] else { return nil }
+        return "hint: only Darwin is Apple-only here; an `#elseif canImport(Android)` branch with `import Android` may be enough"
+    }
+
+    /// Says how the APIs that only newer FoundationEssentials releases have were counted.
+    private var versionNote: String {
+        let notes = versionDependentAPIs.compactMap { symbol -> String? in
+            guard let added = FullFoundationAPI.addedToEssentials[symbol] else { return nil }
+            let counted = swiftVersion.flatMap { SwiftVersion($0) }.map { $0 < added.version } ?? true
+            let status = counted ? "counts as missing" : "doesn't count"
+            return "\(symbol) \(status): FoundationEssentials has it from Swift \(added.version) (\(added.change))."
+        }
+        let checked = swiftVersion.map { "Checked against Swift \($0)" } ?? "The Swift version is unknown"
+        return (notes + ["\(checked); change it with --swift-version."]).joined(separator: " ")
     }
 
     private func block(for finding: Finding, verbose: Bool) -> [String] {
@@ -47,6 +73,9 @@ extension Report {
         lines.append("  path: " + finding.chain.map(\.label).joined(separator: " → "))
         if !finding.appleOnlyImports.isEmpty {
             lines.append("  imports: " + finding.appleOnlyImports.joined(separator: ", "))
+            if let hint = darwinHint(finding.appleOnlyImports) {
+                lines.append("  " + hint)
+            }
         }
         let apis = FullFoundationAPI.allCases.compactMap { api -> String? in
             guard let symbols = finding.fullFoundationAPIs[api.rawValue], !symbols.isEmpty else { return nil }
@@ -54,6 +83,13 @@ extension Report {
         }
         if !apis.isEmpty {
             lines.append("  uses: " + apis.joined(separator: "; "))
+        }
+        for fix in finding.oneLineFixes {
+            let files = fix.files.count == 1 ? fix.files[0] : "\(fix.files.count) files"
+            lines.append("  fix: \(fix.suggestion) in \(files) (\(fix.symbols.joined(separator: ", ")))")
+            if verbose, fix.files.count > 1 {
+                lines.append(contentsOf: fix.files.map { "    \($0)" })
+            }
         }
 
         // For Apple-only targets the individual imports don't matter.
@@ -77,12 +113,13 @@ extension Report {
 }
 
 extension Verdict {
-    static let allCasesInReportOrder: [Verdict] = [.likelyEasy, .needsFullFoundation, .appleOnly]
+    static let allCasesInReportOrder: [Verdict] = [.likelyEasy, .oneLineFix, .needsFullFoundation, .appleOnly]
 
     func summaryLabel(count: Int) -> String {
         let one = count == 1
         return switch self {
         case .likelyEasy: one ? "looks easy to fix" : "look easy to fix"
+        case .oneLineFix: one ? "needs a one-line fix too" : "need a one-line fix too"
         case .needsFullFoundation: one ? "uses full-Foundation APIs" : "use full-Foundation APIs"
         case .appleOnly: one ? "imports Apple-only frameworks" : "import Apple-only frameworks"
         }
@@ -91,6 +128,7 @@ extension Verdict {
     var heading: String {
         switch self {
         case .likelyEasy: "Likely easy: no APIs beyond FoundationEssentials found"
+        case .oneLineFix: "Likely easy, plus a one-line fix: the code uses modules that Foundation re-exports"
         case .needsFullFoundation: "Use APIs that need the full Foundation"
         case .appleOnly: "Import Apple-only frameworks: won't build for this platform anyway"
         }

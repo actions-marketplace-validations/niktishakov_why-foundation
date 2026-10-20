@@ -30,8 +30,13 @@ enum SourceLocator {
             return excluded.contains { path == $0 || path.hasPrefix($0 + "/") }
         }
 
+        // SwiftPM doesn't compile what is inside a DocC catalog, such as tutorial code.
+        func isDocCCatalog(_ url: URL) -> Bool {
+            url.pathExtension == "docc"
+        }
+
         var files: [URL] = []
-        for root in roots where !isExcluded(root) {
+        for root in roots where !isExcluded(root) && !isDocCCatalog(root) {
             if root.pathExtension == "swift" {
                 files.append(root)
                 continue
@@ -40,7 +45,7 @@ enum SourceLocator {
                 continue
             }
             for case let url as URL in enumerator {
-                if isExcluded(url) {
+                if isExcluded(url) || isDocCCatalog(url) {
                     enumerator.skipDescendants()
                     continue
                 }

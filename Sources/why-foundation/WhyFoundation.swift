@@ -32,19 +32,30 @@ struct WhyFoundation: ParsableCommand {
     @Flag(help: "List every import, not just the first few per target.")
     var verbose = false
 
+    @Option(help: "Swift release whose FoundationEssentials to check against, such as 6.4 or 6.5. Default: the version of `swift` on PATH.")
+    var swiftVersion: String?
+
     func run() throws {
         guard let platform = TargetPlatform(rawValue: platform) else {
             throw ValidationError("Unknown platform '\(self.platform)'.")
         }
-        var path = URL(fileURLWithPath: packagePath).standardizedFileURL
-        if let project = try xcodeProject(at: path) {
-            if !json {
-                print("Reading Swift package dependencies of \(project.lastPathComponent) (the app's own sources are not scanned).\n")
+        var version: SwiftVersion?
+        if let swiftVersion {
+            guard let parsed = SwiftVersion(swiftVersion) else {
+                throw ValidationError("Can't read Swift version '\(swiftVersion)'. Pass a version such as 6.4 or 6.5.")
             }
-            path = try XcodeProjectImporter.makeWrapperPackage(for: project, includeTests: includeTests)
+            version = parsed
         }
-        let graph = try GraphLoader.load(packagePath: path)
-        let report = try Analyzer(graph: graph, platform: platform, includeTests: includeTests).run(product: product)
+        let report: Report
+        do {
+            report = try analyze(platform: platform, swiftVersion: version ?? GraphLoader.swiftVersion())
+        } catch let error as ValidationError {
+            throw error
+        } catch {
+            // Exit with 2, not 1: a failed run must not look like "Foundation found".
+            FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+            throw ExitCode(ExitStatus.failure.rawValue)
+        }
 
         if json {
             let encoder = JSONEncoder()
@@ -53,9 +64,23 @@ struct WhyFoundation: ParsableCommand {
         } else {
             print(report.text(verbose: verbose))
         }
-        if !report.findings.isEmpty {
-            throw ExitCode(1)
+        let status = ExitStatus(report: report)
+        if status != .clean {
+            throw ExitCode(status.rawValue)
         }
+    }
+
+    private func analyze(platform: TargetPlatform, swiftVersion: SwiftVersion?) throws -> Report {
+        var path = URL(fileURLWithPath: packagePath).standardizedFileURL
+        if let project = try xcodeProject(at: path) {
+            if !json {
+                print("Reading Swift package dependencies of \(project.lastPathComponent) (the app's own sources are not scanned).\n")
+            }
+            path = try XcodeProjectImporter.makeWrapperPackage(for: project, includeTests: includeTests)
+        }
+        let graph = try GraphLoader.load(packagePath: path)
+        let analyzer = Analyzer(graph: graph, platform: platform, includeTests: includeTests, swiftVersion: swiftVersion)
+        return try analyzer.run(product: product)
     }
 
     /// The Xcode project to analyze, if `path` is one or is a directory with one and no `Package.swift`.

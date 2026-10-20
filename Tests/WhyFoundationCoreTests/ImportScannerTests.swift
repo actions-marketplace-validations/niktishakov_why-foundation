@@ -128,3 +128,158 @@ import Testing
         #expect(apis == [.corelibsOnly: ["IndexSet", "localizedDescription"], .formatting: ["Measurement", "UnitLength"]])
     }
 }
+
+/// APIs that kept real packages from building with FoundationEssentials from Swift 6.4.1.
+@Suite struct MissingAPITests {
+    let configuration = PlatformBuildConfiguration(platform: .android, graphModules: [])
+
+    func apis(_ source: String) -> [FullFoundationAPI: Set<String>] {
+        ImportScanner.scan(source, configuration: configuration).fullFoundationAPIs
+    }
+
+    @Test func stringMembers() {
+        // From Splash, Files, SwiftyBeaver, hummingbird and swifter.
+        let source = """
+        import Foundation
+        extension String {
+            func removing(_ text: String) -> String { replacingOccurrences(of: text, with: "") }
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        let parent = path.range(of: "../")
+        let padded = "".padding(toLength: 2, withPad: " ", startingAt: 0)
+        let same = field.name.caseInsensitiveCompare(host) == .orderedSame
+        let name = tokens.first?.removingPercentEncoding
+        let joined = path.appending("/")
+        """
+        #expect(apis(source) == [.corelibsOnly: [
+            "replacingOccurrences", "trimmingCharacters", "range(of:)", "padding(toLength:)",
+            "caseInsensitiveCompare", "removingPercentEncoding", "appending(_:)",
+        ]])
+    }
+
+    @Test func stringInitializers() {
+        let source = """
+        import Foundation
+        let hex = String(format: "%02x", byte)
+        let text = try String(contentsOf: file)
+        let json = try String(contentsOfFile: path)
+        let name = String(utf8String: pointer)
+        let fine = try String(contentsOf: file, encoding: .utf8)
+        let plain = String(42)
+        """
+        #expect(apis(source) == [.corelibsOnly: ["String(format:)", "String(contentsOf:)", "String(utf8String:)"]])
+    }
+
+    @Test func essentialsAPIsWithTheSameNames() {
+        let source = """
+        import FoundationEssentials
+        let range = 0..<3
+        print(range.count)
+        let days = calendar.range(of: .day, in: .month, for: date)
+        let file = url.appending(path: "x").appending(component: "y")
+        var padding = 4
+        padding += 1
+        let found = data.firstRange(of: needle)
+        """
+        #expect(apis(source).isEmpty)
+    }
+
+    @Test func objectiveCAndCoreFoundationNames() {
+        // From Repeat, Factory, swift-openapi-generator and Alamofire.
+        let source = """
+        import Foundation
+        let id = NSUUID().uuidString
+        final class Lock: NSLocking {}
+        let missing = NSNotFound
+        let now = CFAbsoluteTimeGetCurrent()
+        var isDirectory: ObjCBool = false
+        let allowed = CharacterSet.urlQueryAllowed
+        """
+        #expect(apis(source) == [.corelibsOnly: [
+            "NSUUID", "NSLocking", "NSNotFound", "CFAbsoluteTimeGetCurrent", "ObjCBool", "CharacterSet",
+        ]])
+    }
+
+    @Test func networkingTypes() {
+        let source = """
+        import Foundation
+        final class Delegate: NSObject, URLSessionTaskDelegate {}
+        func retry(_ error: URLError) {}
+        """
+        #expect(apis(source) == [.networking: ["URLSessionTaskDelegate", "URLError"], .corelibsOnly: ["NSObject"]])
+    }
+
+    @Test func notificationCenter() {
+        // FoundationEssentials has NotificationCenter with the message API, but not the legacy observers.
+        let messages = """
+        import FoundationEssentials
+        let token = NotificationCenter.default.addObserver(of: subject, for: .didUpdate) { message in }
+        NotificationCenter.default.post(DidUpdate())
+        """
+        #expect(apis(messages).isEmpty)
+
+        let legacy = """
+        import Foundation
+        NotificationCenter.default.addObserver(forName: .didUpdate, object: nil, queue: nil) { _ in }
+        let name = Notification.Name("didUpdate")
+        """
+        #expect(apis(legacy) == [.corelibsOnly: ["addObserver(forName:)", "Notification"]])
+    }
+}
+
+/// Code that breaks after switching only because `import Foundation` re-exports the C library and Dispatch.
+@Suite struct OneLineFixTests {
+    let configuration = PlatformBuildConfiguration(platform: .android, graphModules: [])
+
+    func fixes(_ source: String) -> [OneLineFix.Kind: Set<String>] {
+        ImportScanner.scan(source, configuration: configuration).oneLineFixes
+    }
+
+    @Test func reexportedModules() {
+        // From Repeat, Factory, Rainbow and PostgresNIO.
+        let source = """
+        import Foundation
+        let queue = DispatchQueue(label: "timer")
+        var mutex = pthread_mutex_t()
+        let isTerminal = isatty(fileno(stdout)) != 0
+        let decoder = Foundation.JSONDecoder()
+        extension Foundation.Date {}
+        """
+        #expect(fixes(source) == [
+            .dispatch: ["DispatchQueue"],
+            .libc: ["pthread_mutex_t", "isatty", "fileno", "stdout"],
+            .qualifier: ["Foundation.JSONDecoder", "Foundation.Date"],
+        ])
+    }
+
+    @Test func alreadyImported() {
+        let source = """
+        import Foundation
+        import Dispatch
+        #if canImport(Glibc)
+        import Glibc
+        #elseif canImport(Android)
+        import Android
+        #endif
+        let queue = DispatchQueue(label: "timer")
+        let isTerminal = isatty(1) != 0
+        """
+        #expect(fixes(source).isEmpty)
+    }
+
+    @Test func onlyFreeNamesInFilesThatImportFoundation() {
+        let members = """
+        import Foundation
+        let size = file.stat.size
+        let rounded = value.round
+        let mode: Mode = .read
+        """
+        #expect(fixes(members).isEmpty)
+
+        let essentials = """
+        import FoundationEssentials
+        let queue = DispatchQueue(label: "timer")
+        """
+        #expect(fixes(essentials).isEmpty)
+    }
+}

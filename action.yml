@@ -24,6 +24,9 @@ inputs:
   verbose:
     description: List every import instead of the first few per target.
     default: 'false'
+  swift-version:
+    description: Swift release whose FoundationEssentials to check against, such as 6.4. By default, the version of swift on the runner.
+    default: ''
 
 runs:
   using: composite
@@ -37,6 +40,7 @@ runs:
         WF_PLATFORM: ${{ inputs.platform }}
         WF_INCLUDE_TESTS: ${{ inputs.include-tests }}
         WF_VERBOSE: ${{ inputs.verbose }}
+        WF_SWIFT_VERSION: ${{ inputs.swift-version }}
       run: |
         set -euo pipefail
 
@@ -73,5 +77,14 @@ runs:
         if [ -n "$WF_PRODUCT" ]; then args+=(--product "$WF_PRODUCT"); fi
         if [ "$WF_INCLUDE_TESTS" = true ]; then args+=(--include-tests); fi
         if [ "$WF_VERBOSE" = true ]; then args+=(--verbose); fi
+        if [ -n "$WF_SWIFT_VERSION" ]; then args+=(--swift-version "$WF_SWIFT_VERSION"); fi
 
+        # Exit code 1: something pulls in the full Foundation. 2: the package graph couldn't be read.
+        set +e
         "$dir/why-foundation" "${args[@]}"
+        code=$?
+        set -e
+        if [ "$code" = 2 ]; then
+          echo "::error::why-foundation could not analyze the package. See the error above."
+        fi
+        exit "$code"

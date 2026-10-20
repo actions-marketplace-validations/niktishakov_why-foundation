@@ -90,13 +90,29 @@ public enum GraphLoadingError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .commandFailed(let command, let output): "`\(command)` failed:\n\(output)"
+        case .commandFailed(let command, let output): "`\(command)` failed:\n\(Self.errorLines(in: output))"
         case .unexpectedOutput(let command): "`\(command)` returned output that could not be read"
         }
+    }
+
+    /// The lines of SwiftPM's output that say what went wrong, without the progress lines
+    /// ("Fetching ...", "Computing version ...") that come before them.
+    static func errorLines(in output: String) -> String {
+        let lines = output.split(whereSeparator: \.isNewline)
+        let errors = lines.filter { $0.hasPrefix("error:") || $0.contains(": error:") }
+        // If SwiftPM printed no `error:` line, the last lines are the most useful ones.
+        return (errors.isEmpty ? lines.suffix(10) : errors[...]).joined(separator: "\n")
     }
 }
 
 public enum GraphLoader {
+    /// The version of the toolchain that runs `swift package`, which also provides FoundationEssentials.
+    public static func swiftVersion(swiftExecutable: String = "swift") -> SwiftVersion? {
+        guard let result = try? Command.run([swiftExecutable, "--version"]), result.exitCode == 0 else { return nil }
+        let output = String(decoding: result.output + result.errorOutput, as: UTF8.self)
+        return SwiftVersion(versionOutput: output)
+    }
+
     /// Resolves the package at `packagePath` and loads the manifests of every package in its graph.
     public static func load(packagePath: URL, swiftExecutable: String = "swift") throws -> PackageGraph {
         let tree = try runJSON(swiftExecutable, ["package", "show-dependencies", "--format", "json"], in: packagePath)

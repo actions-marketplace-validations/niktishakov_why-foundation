@@ -27,7 +27,8 @@ swift-protobuf › SwiftProtobuf
 
 swift-dependencies › Dependencies
   path: Shared → Dependencies (swift-dependencies)
-  uses: URLProtocol, URLRequest, URLSession, URLSessionConfiguration (FoundationNetworking); NSRecursiveLock, NotificationCenter (not in FoundationEssentials)
+  uses: URLProtocol, URLRequest, URLSession, URLSessionConfiguration (FoundationNetworking); NSRecursiveLock, RunLoop, String(format:), replacingOccurrences (not in FoundationEssentials)
+  fix: drop the `Foundation.` qualifier in Sources/Dependencies/DependencyValues.swift (Foundation.UUID)
   Sources/Dependencies/DependencyValues.swift:1  import Foundation
   Sources/Dependencies/DependencyValues/Calendar.swift:2  import Foundation
   Sources/Dependencies/DependencyValues/Date.swift:2  import Foundation
@@ -87,8 +88,16 @@ why-foundation --json
 | `--include-tests` | Also analyze test targets. |
 | `--json` | Machine-readable output. |
 | `--verbose` | List every import instead of the first few per target. |
+| `--swift-version` | The Swift release whose `FoundationEssentials` to check against, such as `6.4` or `6.5`. Default: the version of `swift` on `PATH`. |
 
-The exit code is 1 when anything pulls in Foundation, so you can use it in CI.
+Exit codes, for CI:
+
+| Code | Meaning |
+|---|---|
+| 0 | Nothing pulls in the full Foundation. |
+| 1 | Something pulls in the full Foundation. |
+| 2 | The analysis didn't run, for example because SwiftPM couldn't load the package graph. Only SwiftPM's `error:` lines are printed. |
+| 64 | Wrong command-line arguments. |
 
 ### In CI
 
@@ -100,7 +109,7 @@ With the GitHub Action, after the step that sets up Swift:
     product: MyLibrary
 ```
 
-The job fails when anything pulls in the full Foundation. Inputs: `version` (default `latest`), `package-path`, `product`, `platform` (`android` or `linux`), `include-tests` and `verbose`. The action downloads a prebuilt binary, so it takes seconds, and it runs on Linux and macOS runners.
+The job fails when anything pulls in the full Foundation, or when the package can't be analyzed (exit code 2, with an error annotation). Inputs: `version` (default `latest`), `package-path`, `product`, `platform` (`android` or `linux`), `include-tests`, `verbose` and `swift-version`. The action downloads a prebuilt binary, so it takes seconds, and it runs on Linux and macOS runners.
 
 Or call the binary yourself:
 
@@ -126,10 +135,11 @@ Each finding gets a verdict:
 | Verdict | Meaning |
 |---|---|
 | Likely easy | No APIs beyond `FoundationEssentials` found. Switching the import is probably enough. |
-| Uses full-Foundation APIs | Uses `URLSession`, legacy formatters, `NSLock`, `Bundle` or similar. Needs real work, or isn't worth changing. |
+| Likely easy, plus a one-line fix | The same, but the code also uses what `import Foundation` re-exports: C library calls such as `isatty` or `pthread_mutex_lock`, `DispatchQueue`, or names written as `Foundation.X`. The report shows the fix, such as ``add `import Dispatch` ``. |
+| Uses full-Foundation APIs | Uses `URLSession`, legacy formatters, `NSLock`, `Bundle`, `String` methods such as `replacingOccurrences` or similar. Needs real work, or isn't worth changing. |
 | Apple-only | Imports `UIKit`, `SwiftUI` or another Apple framework, so it doesn't build for Android anyway. |
 
-The [Swift Ecosystem Steering Group recommends](https://forums.swift.org/t/the-adoption-of-import-foundationessentials-throughout-the-package-ecosystem/84112/16) switching to `FoundationEssentials` where a package only uses APIs available there. The "likely easy" group is where that applies.
+The [Swift Ecosystem Steering Group recommends](https://forums.swift.org/t/the-adoption-of-import-foundationessentials-throughout-the-package-ecosystem/84112/16) switching to `FoundationEssentials` where a package only uses APIs available there. The two "likely easy" groups are where that applies.
 
 ## Accuracy
 
@@ -139,8 +149,9 @@ Known limits:
 
 - `Package.swift` is evaluated on the machine where you run the tool, as it is when you build. A manifest that adds resources under `#if canImport(Darwin)` still adds them when you cross-compile for Android from a Mac, and the report shows that.
 - For Xcode projects, only the Swift package dependencies are analyzed, not the app's own sources. `.xcworkspace` isn't supported yet.
-- Full-Foundation APIs are detected by name. A type of your own called `Bundle` or `Timer` is reported too, and an API missing from the list is not. Treat "likely easy" as a hint: the reliable check is building the target on Linux with `FoundationEssentials`.
+- Full-Foundation APIs are detected by name. Names that the target or its dependencies declare, such as a type of your own called `Timer`, are not counted. An API missing from the list is not reported. Treat "likely easy" as a hint: the reliable check is building the target on Linux with `FoundationEssentials`.
 - Binary targets can't be inspected and are listed separately.
+- What `FoundationEssentials` has depends on the Swift release. `CharacterSet` is in it on swift-foundation main ([#2314](https://github.com/swiftlang/swift-foundation/pull/2314)), not in 6.4.x, so it counts as missing up to 6.4 and not from 6.5. The report says which version it used.
 
 ## License
 
