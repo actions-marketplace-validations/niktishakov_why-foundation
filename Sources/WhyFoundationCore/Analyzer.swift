@@ -7,6 +7,9 @@ public enum Cause: Codable, Equatable, Sendable {
     /// The target has resources, so SwiftPM generates `resource_bundle_accessor.swift`,
     /// which imports Foundation.
     case resourceBundle
+    /// Like `resourceBundle`, but the only resources are privacy manifests. They matter only on Apple
+    /// platforms, yet SwiftPM still generates the accessor elsewhere (swiftlang/swift-package-manager#9792).
+    case privacyManifest
 }
 
 /// How hard it is to keep a target from pulling in Foundation.
@@ -20,6 +23,8 @@ public enum Verdict: String, Codable, Sendable {
     case oneLineFix
     /// No full-Foundation APIs found: switching to `FoundationEssentials` looks straightforward.
     case likelyEasy
+    /// The target's only cause is a privacy manifest: there is nothing to change in its code.
+    case privacyManifestOnly
 }
 
 /// A target reachable from the analyzed entry points that pulls in Foundation.
@@ -66,6 +71,10 @@ public struct Report: Codable, Sendable {
     /// APIs found in the reported targets that only some FoundationEssentials releases have, such as
     /// `CharacterSet`. They count as missing unless `swiftVersion` has them.
     public var versionDependentAPIs: [String] = []
+    /// Root targets that no library product includes, such as examples and tools, which weren't analyzed.
+    public var skippedTargets: [String] = []
+    /// Whether the manifests were evaluated on macOS, where `#if canImport(Darwin)` in `Package.swift` is true.
+    public var manifestsEvaluatedOnDarwin: Bool = false
 }
 
 public enum AnalysisError: Error, CustomStringConvertible {
@@ -83,15 +92,28 @@ public struct Analyzer {
     public var graph: PackageGraph
     public var platform: TargetPlatform
     public var includeTests: Bool
+    /// Analyze every root target, not only the ones in library products.
+    public var allTargets: Bool
+    /// Whether the manifests were evaluated on macOS. Only used for the report.
+    public var manifestsEvaluatedOnDarwin: Bool
     /// The Swift release whose FoundationEssentials to check against. When it is unknown, APIs that only
     /// newer releases have count as missing.
     public var swiftVersion: SwiftVersion?
 
-    public init(graph: PackageGraph, platform: TargetPlatform, includeTests: Bool = false, swiftVersion: SwiftVersion? = nil) {
+    public init(
+        graph: PackageGraph,
+        platform: TargetPlatform,
+        includeTests: Bool = false,
+        allTargets: Bool = false,
+        swiftVersion: SwiftVersion? = nil,
+        manifestsEvaluatedOnDarwin: Bool = false
+    ) {
         self.graph = graph
         self.platform = platform
         self.includeTests = includeTests
+        self.allTargets = allTargets
         self.swiftVersion = swiftVersion
+        self.manifestsEvaluatedOnDarwin = manifestsEvaluatedOnDarwin
     }
 
     private struct Key: Hashable {
@@ -108,8 +130,15 @@ public struct Analyzer {
             }
             entryNames = targets
         } else {
+            // An app can only depend on library products, so examples and tools outside them don't count,
+            // unless the package has no library products at all (an app's own package, for example).
+            let libraryTargets = Set(root.libraryProducts.flatMap { root.products[$0] ?? [] })
             entryNames = root.targets.values
-                .filter { $0.isShipped && ($0.kind != .test || includeTests) }
+                .filter { target in
+                    guard target.isShipped else { return false }
+                    if target.kind == .test { return includeTests }
+                    return allTargets || libraryTargets.isEmpty || libraryTargets.contains(target.name)
+                }
                 .map(\.name)
                 .sorted()
         }
@@ -219,7 +248,9 @@ public struct Analyzer {
                 continue
             }
 
-            let verdict: Verdict = if !scan.appleOnlyImports.isEmpty {
+            let verdict: Verdict = if scan.causes == [.privacyManifest] {
+                .privacyManifestOnly
+            } else if !scan.appleOnlyImports.isEmpty {
                 .appleOnly
             } else if !scan.fullFoundationAPIs.isEmpty {
                 .needsFullFoundation
@@ -247,6 +278,12 @@ public struct Analyzer {
             ))
         }
 
+        let visited = Set(visitOrder.filter { $0.package == root.identity }.map(\.target))
+        let skipped = product != nil ? [] : root.targets.values
+            .filter { $0.isShipped && $0.kind != .test && !visited.contains($0.name) }
+            .map(\.name)
+            .sorted()
+
         return Report(
             platform: platform.rawValue,
             entryPoints: entryNames,
@@ -254,7 +291,9 @@ public struct Analyzer {
             appleOnlyTargets: appleOnlyTargets,
             binaryTargets: binaryTargets.sorted(),
             swiftVersion: swiftVersion?.description,
-            versionDependentAPIs: versionDependentAPIs.sorted()
+            versionDependentAPIs: versionDependentAPIs.sorted(),
+            skippedTargets: skipped,
+            manifestsEvaluatedOnDarwin: manifestsEvaluatedOnDarwin
         )
     }
 
@@ -351,7 +390,7 @@ public struct Analyzer {
         var result = TargetScan()
         // Listed first: unlike an import, it is invisible in the sources.
         if !files.isEmpty, target.hasDeclaredResources {
-            result.causes.append(.resourceBundle)
+            result.causes.append(target.hasOnlyPrivacyManifests ? .privacyManifest : .resourceBundle)
         }
 
         for file in files {

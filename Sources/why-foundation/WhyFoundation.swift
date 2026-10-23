@@ -20,8 +20,11 @@ struct WhyFoundation: ParsableCommand {
     @Option(help: "Platform whose #if conditions and dependency conditions apply: \(TargetPlatform.allCases.map(\.rawValue).joined(separator: ", ")).")
     var platform: String = TargetPlatform.android.rawValue
 
-    @Option(help: "Analyze only this product of the root package. By default, all non-test targets.")
+    @Option(help: "Analyze only this product of the root package. By default, the targets of all library products.")
     var product: String?
+
+    @Flag(help: "Analyze every non-test target of the root package, including examples and tools outside library products.")
+    var allTargets = false
 
     @Flag(help: "Also analyze the root package's test targets.")
     var includeTests = false
@@ -79,7 +82,15 @@ struct WhyFoundation: ParsableCommand {
             path = try XcodeProjectImporter.makeWrapperPackage(for: project, includeTests: includeTests)
         }
         let graph = try GraphLoader.load(packagePath: path)
-        let analyzer = Analyzer(graph: graph, platform: platform, includeTests: includeTests, swiftVersion: swiftVersion)
+        #if os(macOS)
+        let evaluatedOnDarwin = true
+        #else
+        let evaluatedOnDarwin = false
+        #endif
+        let analyzer = Analyzer(
+            graph: graph, platform: platform, includeTests: includeTests, allTargets: allTargets,
+            swiftVersion: swiftVersion, manifestsEvaluatedOnDarwin: evaluatedOnDarwin
+        )
         return try analyzer.run(product: product)
     }
 

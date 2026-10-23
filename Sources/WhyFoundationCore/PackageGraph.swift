@@ -9,6 +9,8 @@ public struct PackageNode: Sendable {
     public var targets: [String: TargetNode]
     /// Traits enabled for this package in the resolved graph; each is also a compilation condition.
     public var enabledTraits: Set<String>
+    /// Names of the library products: the parts of the package that an app can depend on.
+    public var libraryProducts: Set<String> = []
 }
 
 public struct TargetNode: Sendable {
@@ -25,6 +27,13 @@ public struct TargetNode: Sendable {
     public var dependencies: [Dependency]
     /// `swiftSettings: [.define(...)]`, with the platforms each one is limited to.
     public var swiftDefines: [SwiftDefine]
+    /// Paths of the declared resources, relative to the target directory.
+    public var resourcePaths: [String] = []
+
+    /// Whether the only declared resources are privacy manifests (`PrivacyInfo.xcprivacy`).
+    var hasOnlyPrivacyManifests: Bool {
+        !resourcePaths.isEmpty && resourcePaths.allSatisfy { $0.split(separator: "/").last == "PrivacyInfo.xcprivacy" }
+    }
 
     /// The compilation conditions this target's `define` settings set for `platform`, in a release build.
     func activeDefines(for platform: TargetPlatform) -> Set<String> {
@@ -160,9 +169,14 @@ public enum GraphLoader {
         requestedTraits: Set<String>
     ) -> PackageNode {
         var products: [String: [String]] = [:]
+        var libraryProducts: Set<String> = []
         for product in manifest["products"] as? [[String: Any]] ?? [] {
             if let name = product["name"] as? String {
                 products[name] = product["targets"] as? [String] ?? []
+                // "type": {"library": ["automatic"]}, {"executable": null} or {"plugin": null}.
+                if (product["type"] as? [String: Any])?["library"] != nil {
+                    libraryProducts.insert(name)
+                }
             }
         }
 
@@ -180,7 +194,8 @@ public enum GraphLoader {
                 exclude: target["exclude"] as? [String] ?? [],
                 hasDeclaredResources: !resources.isEmpty,
                 dependencies: dependencies,
-                swiftDefines: (target["settings"] as? [[String: Any]] ?? []).compactMap(parseSwiftDefine)
+                swiftDefines: (target["settings"] as? [[String: Any]] ?? []).compactMap(parseSwiftDefine),
+                resourcePaths: resources.compactMap { ($0 as? [String: Any])?["path"] as? String }
             )
         }
 
@@ -190,7 +205,8 @@ public enum GraphLoader {
             path: path,
             products: products,
             targets: targets,
-            enabledTraits: expandTraits(requestedTraits, manifest: manifest)
+            enabledTraits: expandTraits(requestedTraits, manifest: manifest),
+            libraryProducts: libraryProducts
         )
     }
 

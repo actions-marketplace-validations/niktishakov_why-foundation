@@ -34,6 +34,25 @@ import Testing
         #expect(dependency?.condition.traits == ["CombineSchedulers"])
     }
 
+    @Test func libraryProductsAndResourcePaths() {
+        let manifest: [String: Any] = [
+            "name": "swift-nio-ssl",
+            "products": [
+                ["name": "NIOSSL", "targets": ["NIOSSL"], "type": ["library": ["automatic"]]],
+                ["name": "NIOTLSServer", "targets": ["NIOTLSServer"], "type": ["executable": NSNull()]],
+            ],
+            "targets": [
+                ["name": "NIOSSL", "type": "regular", "resources": [["path": "PrivacyInfo.xcprivacy", "rule": ["copy": [:]]]]],
+                ["name": "NIOTLSServer", "type": "executable"],
+            ],
+        ]
+        let package = GraphLoader.makePackage(identity: "swift-nio-ssl", path: URL(fileURLWithPath: "/"), manifest: manifest, requestedTraits: [])
+        #expect(package.libraryProducts == ["NIOSSL"])
+        #expect(package.targets["NIOSSL"]?.resourcePaths == ["PrivacyInfo.xcprivacy"])
+        #expect(package.targets["NIOSSL"]?.hasOnlyPrivacyManifests == true)
+        #expect(package.targets["NIOTLSServer"]?.hasDeclaredResources == false)
+    }
+
     @Test func defaultTraitExpandsTransitively() {
         let manifest: [String: Any] = ["traits": [
             ["name": "default", "enabledTraits": ["Foundation"]],

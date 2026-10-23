@@ -7,18 +7,90 @@ import Testing
     func analyze(
         _ files: [String: String],
         targets: [TargetNode],
+        libraries: [String: [String]] = [:],
         platform: TargetPlatform = .android,
-        swiftVersion: SwiftVersion? = SwiftVersion(6, 4, 1)
+        swiftVersion: SwiftVersion? = SwiftVersion(6, 4, 1),
+        allTargets: Bool = false,
+        onDarwin: Bool = false
     ) throws -> Report {
         let package = try TemporaryPackage(files: files)
         let root = PackageNode(
-            identity: "app", name: "app", path: package.path, products: [:],
-            targets: Dictionary(uniqueKeysWithValues: targets.map { ($0.name, $0) }), enabledTraits: []
+            identity: "app", name: "app", path: package.path, products: libraries,
+            targets: Dictionary(uniqueKeysWithValues: targets.map { ($0.name, $0) }), enabledTraits: [],
+            libraryProducts: Set(libraries.keys)
         )
         let graph = PackageGraph(root: root, packagesByKey: ["app": root])
         return try withExtendedLifetime(package) {
-            try Analyzer(graph: graph, platform: platform, swiftVersion: swiftVersion).run()
+            try Analyzer(
+                graph: graph, platform: platform, allTargets: allTargets, swiftVersion: swiftVersion,
+                manifestsEvaluatedOnDarwin: onDarwin
+            ).run()
         }
+    }
+
+    @Test func privacyManifestOnly() throws {
+        // swift-nio's NIOPosix: no Foundation import, only PrivacyInfo.xcprivacy (declared when the manifest is evaluated on macOS).
+        let report = try analyze(
+            ["Sources/NIOPosix/Socket.swift": "struct Socket {}\n"],
+            targets: [target("NIOPosix", resources: ["PrivacyInfo.xcprivacy"])],
+            onDarwin: true
+        )
+        let finding = try #require(report.findings.first)
+        #expect(finding.causes == [.privacyManifest])
+        #expect(finding.verdict == .privacyManifestOnly)
+        let text = report.text()
+        #expect(text.contains("1 only has a privacy manifest"))
+        #expect(text.contains("── Only a privacy manifest: SwiftPM's resource accessor imports Foundation ──"))
+        #expect(text.contains("(swiftlang/swift-package-manager#9792)"))
+        #expect(text.contains("don't add it when you build on a Linux host."))
+        #expect(!(try analyze(
+            ["Sources/NIOPosix/Socket.swift": "struct Socket {}\n"],
+            targets: [target("NIOPosix", resources: ["PrivacyInfo.xcprivacy"])]
+        ).text().contains("Linux host")))
+    }
+
+    @Test func privacyManifestWithAnImportOrOtherResources() throws {
+        // swift-crypto's CryptoBoringWrapper also imports Foundation: the code still has to change.
+        let withImport = try analyze(
+            ["Sources/Wrapper/AEAD.swift": "import Foundation\n"],
+            targets: [target("Wrapper", resources: ["PrivacyInfo.xcprivacy"])]
+        )
+        #expect(withImport.findings.first?.verdict == .likelyEasy)
+        #expect(withImport.findings.first?.causes.first == .privacyManifest)
+
+        let otherResources = try analyze(
+            ["Sources/Assets/Assets.swift": "struct Assets {}\n"],
+            targets: [target("Assets", resources: ["PrivacyInfo.xcprivacy", "data.json"])]
+        )
+        #expect(otherResources.findings.first?.causes == [.resourceBundle])
+        #expect(otherResources.findings.first?.verdict == .likelyEasy)
+    }
+
+    @Test func onlyLibraryProductsByDefault() throws {
+        // swift-argument-parser: examples and tools import Foundation, the library doesn't.
+        let files = [
+            "Sources/ArgumentParser/Parser.swift": "import ArgumentParserToolInfo\n",
+            "Sources/ArgumentParserToolInfo/Info.swift": "public struct Info {}\n",
+            "Sources/count-lines/main.swift": "import Foundation\nlet handle = FileHandle.standardInput\n",
+            "Sources/TestHelpers/Helpers.swift": "import Foundation\n",
+        ]
+        let targets = [
+            target("ArgumentParser", dependencies: [.byName("ArgumentParserToolInfo", condition: DependencyCondition())]),
+            target("ArgumentParserToolInfo"),
+            target("count-lines", kind: .executable),
+            target("TestHelpers"),
+        ]
+        let libraries = ["ArgumentParser": ["ArgumentParser"]]
+        let report = try analyze(files, targets: targets, libraries: libraries)
+        #expect(report.findings.isEmpty)
+        #expect(report.skippedTargets == ["TestHelpers", "count-lines"])
+        #expect(report.text().contains(
+            "Not checked: 2 targets that no library product includes, such as examples and tools: TestHelpers, count-lines. Check them with --all-targets."
+        ))
+
+        let all = try analyze(files, targets: targets, libraries: libraries, allTargets: true)
+        #expect(all.findings.map(\.target).sorted() == ["TestHelpers", "count-lines"])
+        #expect(all.skippedTargets.isEmpty)
     }
 
     @Test func ownTypeInADependencyIsNotFoundations() throws {
