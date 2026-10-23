@@ -21,6 +21,9 @@ extension Report {
                 guard !group.isEmpty else { continue }
                 lines.append("")
                 lines.append("── \(verdict.heading) ──")
+                if verdict == .privacyManifestOnly {
+                    lines.append(contentsOf: privacyManifestNote.map { "   " + $0 })
+                }
                 for finding in group {
                     lines.append("")
                     lines.append(contentsOf: block(for: finding, verbose: verbose))
@@ -38,6 +41,11 @@ extension Report {
                 }
             }
         }
+        if !skippedTargets.isEmpty {
+            lines.append("")
+            let count = skippedTargets.count == 1 ? "1 target that no library product includes" : "\(skippedTargets.count) targets that no library product includes"
+            lines.append("Not checked: \(count), such as examples and tools: \(skippedTargets.joined(separator: ", ")). Check them with --all-targets.")
+        }
         if !binaryTargets.isEmpty {
             lines.append("")
             lines.append("Not inspected (binary targets): " + binaryTargets.joined(separator: ", "))
@@ -47,6 +55,19 @@ extension Report {
             lines.append(versionNote)
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// What a privacy-manifest-only finding means and when it goes away.
+    private var privacyManifestNote: [String] {
+        var note = [
+            "SwiftPM generates the accessor even though the manifest only matters on Apple platforms",
+            "(swiftlang/swift-package-manager#9792). Nothing to change in these targets' code.",
+        ]
+        if manifestsEvaluatedOnDarwin {
+            note.append("Package.swift was evaluated on macOS, where `#if canImport(Darwin)` is true. Packages that")
+            note.append("declare the manifest under that condition don't add it when you build on a Linux host.")
+        }
+        return note
     }
 
     /// Code like `#if os(Linux) import Glibc #else import Darwin #endif` imports Darwin on Android. When that
@@ -102,6 +123,8 @@ extension Report {
                 lines.append("  \(file):\(heavyImport.line)  \(exported)import \(heavyImport.module.rawValue)")
             case .resourceBundle:
                 lines.append("  resources in Package.swift  (SwiftPM's generated resource accessor imports Foundation)")
+            case .privacyManifest:
+                lines.append("  privacy manifest in Package.swift  (SwiftPM's generated resource accessor imports Foundation)")
             }
         }
         let hidden = finding.causes.count - shown.count
@@ -113,7 +136,7 @@ extension Report {
 }
 
 extension Verdict {
-    static let allCasesInReportOrder: [Verdict] = [.likelyEasy, .oneLineFix, .needsFullFoundation, .appleOnly]
+    static let allCasesInReportOrder: [Verdict] = [.likelyEasy, .oneLineFix, .needsFullFoundation, .privacyManifestOnly, .appleOnly]
 
     func summaryLabel(count: Int) -> String {
         let one = count == 1
@@ -121,6 +144,7 @@ extension Verdict {
         case .likelyEasy: one ? "looks easy to fix" : "look easy to fix"
         case .oneLineFix: one ? "needs a one-line fix too" : "need a one-line fix too"
         case .needsFullFoundation: one ? "uses full-Foundation APIs" : "use full-Foundation APIs"
+        case .privacyManifestOnly: one ? "only has a privacy manifest" : "only have a privacy manifest"
         case .appleOnly: one ? "imports Apple-only frameworks" : "import Apple-only frameworks"
         }
     }
@@ -130,6 +154,7 @@ extension Verdict {
         case .likelyEasy: "Likely easy: no APIs beyond FoundationEssentials found"
         case .oneLineFix: "Likely easy, plus a one-line fix: the code uses modules that Foundation re-exports"
         case .needsFullFoundation: "Use APIs that need the full Foundation"
+        case .privacyManifestOnly: "Only a privacy manifest: SwiftPM's resource accessor imports Foundation"
         case .appleOnly: "Import Apple-only frameworks: won't build for this platform anyway"
         }
     }

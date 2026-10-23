@@ -84,7 +84,8 @@ why-foundation --json
 |---|---|
 | `-p, --package-path` | A Swift package, an `.xcodeproj`, or a directory with one of them. Default: the current directory. |
 | `--platform` | `android` (default) or `linux`. Decides how `#if` blocks and platform conditions are evaluated. |
-| `--product` | Analyze one product of the root package instead of all its targets. |
+| `--product` | Analyze one product of the root package. Default: the targets of all library products, or every target when the package has none. |
+| `--all-targets` | Also analyze root targets outside library products, such as examples and tools. |
 | `--include-tests` | Also analyze test targets. |
 | `--json` | Machine-readable output. |
 | `--verbose` | List every import instead of the first few per target. |
@@ -137,6 +138,7 @@ Each finding gets a verdict:
 | Likely easy | No APIs beyond `FoundationEssentials` found. Switching the import is probably enough. |
 | Likely easy, plus a one-line fix | The same, but the code also uses what `import Foundation` re-exports: C library calls such as `isatty` or `pthread_mutex_lock`, `DispatchQueue`, or names written as `Foundation.X`. The report shows the fix, such as ``add `import Dispatch` ``. |
 | Uses full-Foundation APIs | Uses `URLSession`, legacy formatters, `NSLock`, `Bundle`, `String` methods such as `replacingOccurrences` or similar. Needs real work, or isn't worth changing. |
+| Only a privacy manifest | The target's only resource is `PrivacyInfo.xcprivacy`, and its code doesn't import Foundation. Nothing to change in the package: it's the SwiftPM accessor ([swift-package-manager#9792](https://github.com/swiftlang/swift-package-manager/issues/9792)). Packages such as swift-nio and swift-crypto declare the manifest under `#if canImport(Darwin)`, so it only appears when you build from a Mac. |
 | Apple-only | Imports `UIKit`, `SwiftUI` or another Apple framework, so it doesn't build for Android anyway. |
 
 The [Swift Ecosystem Steering Group recommends](https://forums.swift.org/t/the-adoption-of-import-foundationessentials-throughout-the-package-ecosystem/84112/16) switching to `FoundationEssentials` where a package only uses APIs available there. The two "likely easy" groups are where that applies.

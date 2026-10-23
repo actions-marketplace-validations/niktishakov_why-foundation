@@ -13,8 +13,11 @@ inputs:
     description: Path to the Swift package or Xcode project to check.
     default: .
   product:
-    description: Check only this product of the root package. By default, all non-test targets are checked.
+    description: Check only this product of the root package. By default, the targets of all library products are checked.
     default: ''
+  all-targets:
+    description: Also check root targets outside library products, such as examples and tools.
+    default: 'false'
   platform:
     description: Platform whose conditions apply, android or linux.
     default: android
@@ -39,6 +42,7 @@ runs:
         WF_PRODUCT: ${{ inputs.product }}
         WF_PLATFORM: ${{ inputs.platform }}
         WF_INCLUDE_TESTS: ${{ inputs.include-tests }}
+        WF_ALL_TARGETS: ${{ inputs.all-targets }}
         WF_VERBOSE: ${{ inputs.verbose }}
         WF_SWIFT_VERSION: ${{ inputs.swift-version }}
       run: |
@@ -76,6 +80,7 @@ runs:
         args=(--package-path "$WF_PACKAGE_PATH" --platform "$WF_PLATFORM")
         if [ -n "$WF_PRODUCT" ]; then args+=(--product "$WF_PRODUCT"); fi
         if [ "$WF_INCLUDE_TESTS" = true ]; then args+=(--include-tests); fi
+        if [ "$WF_ALL_TARGETS" = true ]; then args+=(--all-targets); fi
         if [ "$WF_VERBOSE" = true ]; then args+=(--verbose); fi
         if [ -n "$WF_SWIFT_VERSION" ]; then args+=(--swift-version "$WF_SWIFT_VERSION"); fi
 

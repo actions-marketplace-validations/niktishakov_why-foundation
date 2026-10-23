@@ -21,10 +21,16 @@ final class TemporaryPackage {
     }
 }
 
-func target(_ name: String, dependencies: [Dependency] = []) -> TargetNode {
+func target(
+    _ name: String,
+    kind: TargetNode.Kind = .regular,
+    dependencies: [Dependency] = [],
+    resources: [String] = []
+) -> TargetNode {
     TargetNode(
-        name: name, kind: .regular, customPath: nil, sources: nil, exclude: [],
-        hasDeclaredResources: false, dependencies: dependencies, swiftDefines: []
+        name: name, kind: kind, customPath: nil, sources: nil, exclude: [],
+        hasDeclaredResources: !resources.isEmpty, dependencies: dependencies, swiftDefines: [],
+        resourcePaths: resources
     )
 }
 
